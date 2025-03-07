@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>情绪愈疗助手</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- 加载动画 -->
+    <div class="loader-container" id="loaderContainer">
+        <div class="loader"></div>
+    </div>
+
+    <!-- 主题切换按钮 -->
+    <div class="theme-toggle" id="themeToggle">
+        <i class="fas fa-moon"></i>
+    </div>
+
+    <div class="app-container">
+        <!-- 侧边栏 - 人设选择 -->
+        <aside class="sidebar">
+            <div class="logo">
+                <h1>情绪愈疗助手</h1>
+            </div>
+            <div class="persona-selector">
+                <h2>选择人设</h2>
+                <div class="personas">
+                    <div class="persona active" data-persona="empathetic">
+                        <div class="persona-avatar">
+                            <img src="https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="共情型助手">
+                        </div>
+                        <div class="persona-info">
+                            <h3>共情型助手</h3>
+                            <p>温暖理解，感同身受</p>
+                        </div>
+                    </div>
+                    <div class="persona" data-persona="motivational">
+                        <div class="persona-avatar">
+                            <img src="https://images.unsplash.com/photo-1580489944761-15a19d654956?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="激励型助手">
+                        </div>
+                        <div class="persona-info">
+                            <h3>激励型助手</h3>
+                            <p>积极向上，鼓舞人心</p>
+                        </div>
+                    </div>
+                    <div class="persona" data-persona="analytical">
+                        <div class="persona-avatar">
+                            <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="分析型助手">
+                        </div>
+                        <div class="persona-info">
+                            <h3>分析型助手</h3>
+                            <p>理性分析，提供见解</p>
+                        </div>
+                    </div>
+                    <div class="persona" data-persona="mindful">
+                        <div class="persona-avatar">
+                            <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="正念型助手">
+                        </div>
+                        <div class="persona-info">
+                            <h3>正念型助手</h3>
+                            <p>专注当下，平静心灵</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="emotion-display">
+                <h2>情绪状态</h2>
+                <div class="current-emotion">
+                    <div class="emotion-icon">
+                        <i class="fas fa-smile"></i>
+                    </div>
+                    <div class="emotion-label">平静</div>
+                    <div class="emotion-level">
+                        <div class="level-bar" style="width: 60%;"></div>
+                    </div>
+                </div>
+                <div class="emotion-history">
+                    <h3>情绪变化</h3>
+                    <canvas id="emotionChart"></canvas>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 主内容区 - 聊天界面 -->
+        <main class="main-content">
+            <div class="chat-container">
+                <div class="chat-messages" id="chatMessages">
+                    <!-- 消息将通过JS动态添加 -->
+                    <div class="message assistant">
+                        <div class="message-avatar">
+                            <img src="https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="助手头像">
+                        </div>
+                        <div class="message-content">
+                            <p>你好！我是你的情绪愈疗助手。今天感觉如何？有什么想和我分享的吗？</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-input">
+                    <textarea id="messageInput" placeholder="输入你的消息..." rows="1"></textarea>
+                    <button id="sendButton" class="send-button">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- 右侧边栏 - 香薰推荐 -->
+        <aside class="recommendations">
+            <h2>为你推荐的香薰</h2>
+            <div class="recommendation-cards">
+                <!-- 推荐卡片将通过JS动态添加 -->
+            </div>
+        </aside>
+    </div>
+
+    <!-- 产品详情模态框 -->
+    <div class="modal" id="productModal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <div class="product-details">
+                <!-- 产品详情将通过JS动态添加 -->
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html> 
