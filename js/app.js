@@ -1,17 +1,6 @@
 // 全局变量
 let currentPersona = 'empathetic';
-let emotionData = {
-    labels: ['开始', '5分钟前', '现在'],
-    datasets: [{
-        label: '情绪指数',
-        data: [50, 60, 75],
-        borderColor: '#7e57c2',
-        backgroundColor: 'rgba(126, 87, 194, 0.2)',
-        tension: 0.4,
-        fill: true
-    }]
-};
-let emotionChart;
+let currentEmotion = 'neutral'; // 当前情绪状态
 let isTyping = false;
 
 // 用户认证相关DOM元素
@@ -75,9 +64,6 @@ const closeModal = document.querySelector('.close-modal');
 
 // 初始化函数
 function init() {
-    // 初始化情绪图表
-    initEmotionChart();
-    
     // 加载初始推荐
     loadRecommendations();
     
@@ -89,33 +75,6 @@ function init() {
     
     // 检查用户登录状态
     checkLoginStatus();
-}
-
-// 初始化情绪图表
-function initEmotionChart() {
-    const ctx = document.getElementById('emotionChart').getContext('2d');
-    emotionChart = new Chart(ctx, {
-        type: 'line',
-        data: emotionData,
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 100,
-                    ticks: {
-                        stepSize: 25
-                    }
-                }
-            },
-            plugins: {
-                legend: {
-                    display: false
-                }
-            }
-        }
-    });
 }
 
 // 设置事件监听器
@@ -246,6 +205,44 @@ function setupEventListeners() {
             profileModal.classList.remove('active');
         }
     });
+    
+    // 情绪类型点击
+    document.querySelectorAll('.emotion-type').forEach(type => {
+        type.addEventListener('click', () => {
+            const emotion = type.dataset.emotion;
+            let label, icon, description;
+            
+            switch(emotion) {
+                case 'happy':
+                    label = '快乐';
+                    icon = 'fa-grin-beam';
+                    description = '您似乎心情不错！享受这美好的时刻，并记住这种感觉。';
+                    break;
+                case 'sad':
+                    label = '悲伤';
+                    icon = 'fa-sad-tear';
+                    description = '您似乎感到有些悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。';
+                    break;
+                case 'angry':
+                    label = '愤怒';
+                    icon = 'fa-angry';
+                    description = '您似乎感到有些愤怒。这是一种正常的情绪，尝试找到健康的方式来表达它。';
+                    break;
+                case 'anxious':
+                    label = '焦虑';
+                    icon = 'fa-frown';
+                    description = '您似乎感到有些焦虑。深呼吸可能会有所帮助，尝试放松您的身心。';
+                    break;
+                case 'tired':
+                    label = '疲惫';
+                    icon = 'fa-tired';
+                    description = '您似乎感到有些疲惫。适当的休息对身心健康都很重要。';
+                    break;
+            }
+            
+            updateEmotionDisplay(emotion, label, icon, description);
+        });
+    });
 }
 
 // 自动调整文本区域高度
@@ -373,60 +370,64 @@ function removeTypingIndicator() {
 // 分析情绪（模拟）
 function analyzeEmotion(message) {
     // 简单的关键词匹配（实际应用中应使用更复杂的NLP）
-    let emotionScore = emotionData.datasets[0].data[emotionData.datasets[0].data.length - 1];
+    let emotionType = 'neutral';
     let emotionLabel = '平静';
     let emotionIcon = 'fa-smile';
+    let emotionDescription = '您当前的情绪状态看起来很平静';
     
     const lowerMessage = message.toLowerCase();
     
     if (lowerMessage.includes('难过') || lowerMessage.includes('伤心') || lowerMessage.includes('悲')) {
-        emotionScore = Math.max(30, emotionScore - 15);
+        emotionType = 'sad';
         emotionLabel = '悲伤';
         emotionIcon = 'fa-sad-tear';
+        emotionDescription = '您似乎感到有些悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。';
     } else if (lowerMessage.includes('焦虑') || lowerMessage.includes('担心') || lowerMessage.includes('紧张')) {
-        emotionScore = Math.max(40, emotionScore - 10);
+        emotionType = 'anxious';
         emotionLabel = '焦虑';
         emotionIcon = 'fa-frown';
+        emotionDescription = '您似乎感到有些焦虑。深呼吸可能会有所帮助，尝试放松您的身心。';
     } else if (lowerMessage.includes('生气') || lowerMessage.includes('愤怒') || lowerMessage.includes('烦')) {
-        emotionScore = Math.max(35, emotionScore - 12);
+        emotionType = 'angry';
         emotionLabel = '愤怒';
         emotionIcon = 'fa-angry';
+        emotionDescription = '您似乎感到有些愤怒。这是一种正常的情绪，尝试找到健康的方式来表达它。';
     } else if (lowerMessage.includes('开心') || lowerMessage.includes('高兴') || lowerMessage.includes('快乐')) {
-        emotionScore = Math.min(90, emotionScore + 15);
+        emotionType = 'happy';
         emotionLabel = '快乐';
         emotionIcon = 'fa-grin-beam';
+        emotionDescription = '您似乎心情不错！享受这美好的时刻，并记住这种感觉。';
     } else if (lowerMessage.includes('疲惫') || lowerMessage.includes('累') || lowerMessage.includes('困')) {
-        emotionScore = Math.max(45, emotionScore - 8);
+        emotionType = 'tired';
         emotionLabel = '疲惫';
         emotionIcon = 'fa-tired';
-    } else {
-        // 随机小波动
-        const change = Math.floor(Math.random() * 10) - 5;
-        emotionScore = Math.min(Math.max(emotionScore + change, 30), 90);
+        emotionDescription = '您似乎感到有些疲惫。适当的休息对身心健康都很重要。';
     }
     
-    // 更新情绪图表
-    updateEmotionChart(emotionScore);
-    
-    // 更新情绪显示
-    updateEmotionDisplay(emotionLabel, emotionIcon, emotionScore);
-}
-
-// 更新情绪图表
-function updateEmotionChart(newScore) {
-    // 移动数据点
-    emotionData.datasets[0].data.shift();
-    emotionData.datasets[0].data.push(newScore);
-    
-    // 更新图表
-    emotionChart.update();
+    // 只有当检测到情绪关键词时才更新显示
+    if (emotionType !== 'neutral' || currentEmotion === 'neutral') {
+        updateEmotionDisplay(emotionType, emotionLabel, emotionIcon, emotionDescription);
+    }
 }
 
 // 更新情绪显示
-function updateEmotionDisplay(label, icon, score) {
-    document.querySelector('.emotion-label').textContent = label;
-    document.querySelector('.emotion-icon i').className = `fas ${icon}`;
-    document.querySelector('.level-bar').style.width = `${score}%`;
+function updateEmotionDisplay(emotionType, emotionLabel, emotionIcon, emotionDescription) {
+    // 更新当前情绪
+    currentEmotion = emotionType;
+    
+    // 更新情绪图标和标签
+    document.querySelector('.emotion-icon i').className = `fas ${emotionIcon}`;
+    document.querySelector('.emotion-label').textContent = emotionLabel;
+    document.querySelector('.emotion-description').textContent = emotionDescription;
+    
+    // 更新情绪类型的激活状态
+    document.querySelectorAll('.emotion-type').forEach(type => {
+        if (type.dataset.emotion === emotionType) {
+            type.classList.add('active');
+        } else {
+            type.classList.remove('active');
+        }
+    });
 }
 
 // 生成回复（模拟）
