@@ -19,12 +19,42 @@
         <i class="fas fa-moon"></i>
     </div>
 
+    <!-- 登录/注册按钮 -->
+    <div class="auth-button" id="authButton">
+        <i class="fas fa-user"></i>
+        <span>登录/注册</span>
+    </div>
+
     <div class="app-container">
         <!-- 侧边栏 - 人设选择 -->
         <aside class="sidebar">
             <div class="logo">
                 <h1>情绪愈疗助手</h1>
             </div>
+            
+            <!-- 用户信息区域 (登录后显示) -->
+            <div class="user-profile" id="userProfile" style="display: none;">
+                <div class="user-avatar">
+                    <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="用户头像">
+                </div>
+                <div class="user-info">
+                    <h3 class="user-name">用户名</h3>
+                    <p class="user-email">user@example.com</p>
+                </div>
+                <div class="user-menu-toggle">
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                
+                <!-- 用户菜单 -->
+                <div class="user-menu">
+                    <ul>
+                        <li><i class="fas fa-user-circle"></i> 个人资料</li>
+                        <li><i class="fas fa-cog"></i> 设置</li>
+                        <li><i class="fas fa-sign-out-alt"></i> 退出登录</li>
+                    </ul>
+                </div>
+            </div>
+            
             <div class="persona-selector">
                 <h2>选择人设</h2>
                 <div class="personas">
@@ -114,6 +144,148 @@
                 <!-- 推荐卡片将通过JS动态添加 -->
             </div>
         </aside>
+    </div>
+
+    <!-- 登录/注册模态框 -->
+    <div class="modal" id="authModal">
+        <div class="modal-content auth-modal">
+            <span class="close-modal" id="closeAuthModal">&times;</span>
+            
+            <!-- 标签页导航 -->
+            <div class="auth-tabs">
+                <div class="auth-tab active" data-tab="login">登录</div>
+                <div class="auth-tab" data-tab="register">注册</div>
+            </div>
+            
+            <!-- 登录表单 -->
+            <div class="auth-form login-form active" id="loginForm">
+                <div class="form-group">
+                    <label for="loginEmail">邮箱/用户名</label>
+                    <input type="text" id="loginEmail" placeholder="请输入邮箱或用户名">
+                    <span class="form-error"></span>
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">密码</label>
+                    <div class="password-input">
+                        <input type="password" id="loginPassword" placeholder="请输入密码">
+                        <i class="fas fa-eye-slash toggle-password"></i>
+                    </div>
+                    <span class="form-error"></span>
+                </div>
+                <div class="form-group remember-me">
+                    <input type="checkbox" id="rememberMe">
+                    <label for="rememberMe">记住我</label>
+                    <a href="#" class="forgot-password">忘记密码?</a>
+                </div>
+                <button class="auth-button-submit" id="loginSubmit">登录</button>
+            </div>
+            
+            <!-- 注册表单 -->
+            <div class="auth-form register-form" id="registerForm">
+                <div class="form-group">
+                    <label for="registerUsername">用户名</label>
+                    <input type="text" id="registerUsername" placeholder="请输入用户名">
+                    <span class="form-error"></span>
+                </div>
+                <div class="form-group">
+                    <label for="registerEmail">邮箱</label>
+                    <input type="email" id="registerEmail" placeholder="请输入邮箱">
+                    <span class="form-error"></span>
+                </div>
+                <div class="form-group">
+                    <label for="registerPassword">密码</label>
+                    <div class="password-input">
+                        <input type="password" id="registerPassword" placeholder="请输入密码 (至少8位)">
+                        <i class="fas fa-eye-slash toggle-password"></i>
+                    </div>
+                    <span class="form-error"></span>
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassword">确认密码</label>
+                    <div class="password-input">
+                        <input type="password" id="confirmPassword" placeholder="请再次输入密码">
+                        <i class="fas fa-eye-slash toggle-password"></i>
+                    </div>
+                    <span class="form-error"></span>
+                </div>
+                <button class="auth-button-submit" id="registerSubmit">注册</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 个人资料模态框 -->
+    <div class="modal" id="profileModal">
+        <div class="modal-content profile-modal">
+            <span class="close-modal" id="closeProfileModal">&times;</span>
+            <h2>个人资料</h2>
+            
+            <div class="profile-content">
+                <div class="profile-avatar">
+                    <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="用户头像">
+                    <div class="avatar-upload">
+                        <i class="fas fa-camera"></i>
+                        <input type="file" id="avatarUpload" accept="image/*">
+                    </div>
+                </div>
+                
+                <div class="profile-form">
+                    <div class="form-group">
+                        <label for="profileUsername">用户名</label>
+                        <input type="text" id="profileUsername" value="用户名">
+                    </div>
+                    <div class="form-group">
+                        <label for="profileEmail">邮箱</label>
+                        <input type="email" id="profileEmail" value="user@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="profilePassword">修改密码</label>
+                        <input type="password" id="profilePassword" placeholder="输入新密码">
+                    </div>
+                    
+                    <h3>情绪偏好设置</h3>
+                    <div class="emotion-preferences">
+                        <div class="emotion-preference">
+                            <input type="checkbox" id="emotionAnxiety" checked>
+                            <label for="emotionAnxiety">焦虑</label>
+                        </div>
+                        <div class="emotion-preference">
+                            <input type="checkbox" id="emotionStress">
+                            <label for="emotionStress">压力</label>
+                        </div>
+                        <div class="emotion-preference">
+                            <input type="checkbox" id="emotionSadness">
+                            <label for="emotionSadness">悲伤</label>
+                        </div>
+                        <div class="emotion-preference">
+                            <input type="checkbox" id="emotionInsomnia">
+                            <label for="emotionInsomnia">失眠</label>
+                        </div>
+                    </div>
+                    
+                    <h3>香薰产品偏好</h3>
+                    <div class="aroma-preferences">
+                        <div class="aroma-preference">
+                            <input type="checkbox" id="aromaLavender" checked>
+                            <label for="aromaLavender">薰衣草</label>
+                        </div>
+                        <div class="aroma-preference">
+                            <input type="checkbox" id="aromaLemon">
+                            <label for="aromaLemon">柠檬</label>
+                        </div>
+                        <div class="aroma-preference">
+                            <input type="checkbox" id="aromaJasmine" checked>
+                            <label for="aromaJasmine">茉莉花</label>
+                        </div>
+                        <div class="aroma-preference">
+                            <input type="checkbox" id="aromaPeppermint">
+                            <label for="aromaPeppermint">薄荷</label>
+                        </div>
+                    </div>
+                    
+                    <button class="profile-save-button">保存更改</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- 产品详情模态框 -->

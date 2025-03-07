@@ -14,6 +14,28 @@ let emotionData = {
 let emotionChart;
 let isTyping = false;
 
+// 用户认证相关DOM元素
+const authButton = document.getElementById('authButton');
+const authModal = document.getElementById('authModal');
+const closeAuthModal = document.getElementById('closeAuthModal');
+const authTabs = document.querySelectorAll('.auth-tab');
+const loginForm = document.getElementById('loginForm');
+const registerForm = document.getElementById('registerForm');
+const loginSubmit = document.getElementById('loginSubmit');
+const registerSubmit = document.getElementById('registerSubmit');
+const togglePasswordElements = document.querySelectorAll('.toggle-password');
+const userProfile = document.getElementById('userProfile');
+const userMenuToggle = document.querySelector('.user-menu-toggle');
+const userMenu = document.querySelector('.user-menu');
+const profileModal = document.getElementById('profileModal');
+const closeProfileModal = document.getElementById('closeProfileModal');
+const avatarUpload = document.getElementById('avatarUpload');
+const profileSaveButton = document.querySelector('.profile-save-button');
+
+// 用户状态
+let isLoggedIn = false;
+let currentUser = null;
+
 // 模拟的香薰产品数据
 const aromatherapyProducts = [
     {
@@ -64,6 +86,9 @@ function init() {
     
     // 自动调整文本区域高度
     autoResizeTextarea();
+    
+    // 检查用户登录状态
+    checkLoginStatus();
 }
 
 // 初始化情绪图表
@@ -126,6 +151,101 @@ function setupEventListeners() {
     // 主题切换
     const themeToggle = document.getElementById('themeToggle');
     themeToggle.addEventListener('click', toggleTheme);
+    
+    // 登录/注册按钮点击
+    authButton.addEventListener('click', () => {
+        authModal.classList.add('active');
+    });
+    
+    // 关闭登录/注册模态框
+    closeAuthModal.addEventListener('click', () => {
+        authModal.classList.remove('active');
+    });
+    
+    // 标签页切换
+    authTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.dataset.tab;
+            
+            // 更新标签页状态
+            authTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            // 更新表单显示
+            if (tabName === 'login') {
+                loginForm.classList.add('active');
+                registerForm.classList.remove('active');
+            } else {
+                loginForm.classList.remove('active');
+                registerForm.classList.add('active');
+            }
+        });
+    });
+    
+    // 密码显示/隐藏切换
+    togglePasswordElements.forEach(toggle => {
+        toggle.addEventListener('click', () => {
+            const passwordInput = toggle.previousElementSibling;
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggle.classList.remove('fa-eye-slash');
+                toggle.classList.add('fa-eye');
+            } else {
+                passwordInput.type = 'password';
+                toggle.classList.remove('fa-eye');
+                toggle.classList.add('fa-eye-slash');
+            }
+        });
+    });
+    
+    // 登录表单提交
+    loginSubmit.addEventListener('click', handleLogin);
+    
+    // 注册表单提交
+    registerSubmit.addEventListener('click', handleRegister);
+    
+    // 用户菜单切换
+    userMenuToggle.addEventListener('click', () => {
+        userMenu.classList.toggle('active');
+    });
+    
+    // 用户菜单项点击
+    userMenu.querySelectorAll('li').forEach((item, index) => {
+        item.addEventListener('click', () => {
+            userMenu.classList.remove('active');
+            
+            if (index === 0) { // 个人资料
+                profileModal.classList.add('active');
+            } else if (index === 1) { // 设置
+                // 设置功能待实现
+                alert('设置功能即将上线');
+            } else if (index === 2) { // 退出登录
+                handleLogout();
+            }
+        });
+    });
+    
+    // 关闭个人资料模态框
+    closeProfileModal.addEventListener('click', () => {
+        profileModal.classList.remove('active');
+    });
+    
+    // 头像上传
+    avatarUpload.addEventListener('change', handleAvatarUpload);
+    
+    // 保存个人资料
+    profileSaveButton.addEventListener('click', saveProfile);
+    
+    // 点击模态框外部关闭
+    window.addEventListener('click', (e) => {
+        if (e.target === authModal) {
+            authModal.classList.remove('active');
+        }
+        if (e.target === profileModal) {
+            profileModal.classList.remove('active');
+        }
+    });
 }
 
 // 自动调整文本区域高度
@@ -544,6 +664,325 @@ function loadSavedTheme() {
         html.setAttribute('data-theme', 'dark');
         themeIcon.className = 'fas fa-sun';
     }
+}
+
+// 检查登录状态
+function checkLoginStatus() {
+    // 从localStorage获取用户信息
+    const savedUser = localStorage.getItem('currentUser');
+    
+    if (savedUser) {
+        currentUser = JSON.parse(savedUser);
+        isLoggedIn = true;
+        updateUIForLoggedInUser();
+    }
+}
+
+// 处理登录
+function handleLogin() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const rememberMe = document.getElementById('rememberMe').checked;
+    
+    // 表单验证
+    let isValid = true;
+    
+    if (email === '') {
+        showFormError('loginEmail', '请输入邮箱或用户名');
+        isValid = false;
+    } else {
+        clearFormError('loginEmail');
+    }
+    
+    if (password === '') {
+        showFormError('loginPassword', '请输入密码');
+        isValid = false;
+    } else {
+        clearFormError('loginPassword');
+    }
+    
+    if (!isValid) return;
+    
+    // 模拟登录API调用
+    setTimeout(() => {
+        // 模拟成功登录
+        currentUser = {
+            id: 1,
+            username: email.includes('@') ? email.split('@')[0] : email,
+            email: email.includes('@') ? email : email + '@example.com',
+            avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60',
+            preferences: {
+                emotions: ['焦虑', '失眠'],
+                aromas: ['薰衣草', '茉莉花']
+            }
+        };
+        
+        isLoggedIn = true;
+        
+        // 保存用户信息到localStorage
+        if (rememberMe) {
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        }
+        
+        // 更新UI
+        updateUIForLoggedInUser();
+        
+        // 关闭模态框
+        authModal.classList.remove('active');
+        
+        // 显示欢迎消息
+        addMessageToChat('assistant', `欢迎回来，${currentUser.username}！今天感觉如何？`);
+    }, 1000);
+}
+
+// 处理注册
+function handleRegister() {
+    const username = document.getElementById('registerUsername').value.trim();
+    const email = document.getElementById('registerEmail').value.trim();
+    const password = document.getElementById('registerPassword').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+    
+    // 表单验证
+    let isValid = true;
+    
+    if (username === '') {
+        showFormError('registerUsername', '请输入用户名');
+        isValid = false;
+    } else {
+        clearFormError('registerUsername');
+    }
+    
+    if (email === '') {
+        showFormError('registerEmail', '请输入邮箱');
+        isValid = false;
+    } else if (!isValidEmail(email)) {
+        showFormError('registerEmail', '请输入有效的邮箱地址');
+        isValid = false;
+    } else {
+        clearFormError('registerEmail');
+    }
+    
+    if (password === '') {
+        showFormError('registerPassword', '请输入密码');
+        isValid = false;
+    } else if (password.length < 8) {
+        showFormError('registerPassword', '密码长度至少为8位');
+        isValid = false;
+    } else {
+        clearFormError('registerPassword');
+    }
+    
+    if (confirmPassword === '') {
+        showFormError('confirmPassword', '请确认密码');
+        isValid = false;
+    } else if (confirmPassword !== password) {
+        showFormError('confirmPassword', '两次输入的密码不一致');
+        isValid = false;
+    } else {
+        clearFormError('confirmPassword');
+    }
+    
+    if (!isValid) return;
+    
+    // 模拟注册API调用
+    setTimeout(() => {
+        // 模拟成功注册
+        currentUser = {
+            id: 1,
+            username: username,
+            email: email,
+            avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60',
+            preferences: {
+                emotions: [],
+                aromas: []
+            }
+        };
+        
+        isLoggedIn = true;
+        
+        // 保存用户信息到localStorage
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        
+        // 更新UI
+        updateUIForLoggedInUser();
+        
+        // 关闭模态框
+        authModal.classList.remove('active');
+        
+        // 显示欢迎消息
+        addMessageToChat('assistant', `欢迎加入，${currentUser.username}！我是你的情绪愈疗助手，有什么可以帮到你的吗？`);
+    }, 1000);
+}
+
+// 处理退出登录
+function handleLogout() {
+    // 清除用户信息
+    currentUser = null;
+    isLoggedIn = false;
+    localStorage.removeItem('currentUser');
+    
+    // 更新UI
+    authButton.style.display = 'flex';
+    userProfile.style.display = 'none';
+    
+    // 显示消息
+    addMessageToChat('assistant', '你已退出登录。随时欢迎你回来！');
+}
+
+// 更新已登录用户的UI
+function updateUIForLoggedInUser() {
+    // 隐藏登录按钮，显示用户资料
+    authButton.style.display = 'none';
+    userProfile.style.display = 'flex';
+    
+    // 更新用户信息
+    document.querySelector('.user-name').textContent = currentUser.username;
+    document.querySelector('.user-email').textContent = currentUser.email;
+    document.querySelector('.user-avatar img').src = currentUser.avatar;
+    
+    // 更新个人资料模态框
+    document.getElementById('profileUsername').value = currentUser.username;
+    document.getElementById('profileEmail').value = currentUser.email;
+    document.querySelector('.profile-avatar img').src = currentUser.avatar;
+    
+    // 更新情绪和香薰偏好
+    if (currentUser.preferences) {
+        // 重置所有复选框
+        document.querySelectorAll('.emotion-preference input, .aroma-preference input').forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        
+        // 设置用户偏好
+        if (currentUser.preferences.emotions) {
+            currentUser.preferences.emotions.forEach(emotion => {
+                const checkbox = document.getElementById(`emotion${capitalizeFirstLetter(emotion)}`);
+                if (checkbox) checkbox.checked = true;
+            });
+        }
+        
+        if (currentUser.preferences.aromas) {
+            currentUser.preferences.aromas.forEach(aroma => {
+                const checkbox = document.getElementById(`aroma${capitalizeFirstLetter(aroma)}`);
+                if (checkbox) checkbox.checked = true;
+            });
+        }
+    }
+}
+
+// 处理头像上传
+function handleAvatarUpload(e) {
+    const file = e.target.files[0];
+    
+    if (file) {
+        const reader = new FileReader();
+        
+        reader.onload = function(event) {
+            const avatarUrl = event.target.result;
+            
+            // 更新头像预览
+            document.querySelector('.profile-avatar img').src = avatarUrl;
+        };
+        
+        reader.readAsDataURL(file);
+    }
+}
+
+// 保存个人资料
+function saveProfile() {
+    const username = document.getElementById('profileUsername').value.trim();
+    const email = document.getElementById('profileEmail').value.trim();
+    const password = document.getElementById('profilePassword').value;
+    
+    // 表单验证
+    let isValid = true;
+    
+    if (username === '') {
+        alert('用户名不能为空');
+        isValid = false;
+    }
+    
+    if (email === '' || !isValidEmail(email)) {
+        alert('请输入有效的邮箱地址');
+        isValid = false;
+    }
+    
+    if (!isValid) return;
+    
+    // 获取情绪偏好
+    const emotionPreferences = [];
+    document.querySelectorAll('.emotion-preference input:checked').forEach(checkbox => {
+        emotionPreferences.push(checkbox.nextElementSibling.textContent);
+    });
+    
+    // 获取香薰偏好
+    const aromaPreferences = [];
+    document.querySelectorAll('.aroma-preference input:checked').forEach(checkbox => {
+        aromaPreferences.push(checkbox.nextElementSibling.textContent);
+    });
+    
+    // 更新用户信息
+    currentUser.username = username;
+    currentUser.email = email;
+    currentUser.avatar = document.querySelector('.profile-avatar img').src;
+    currentUser.preferences = {
+        emotions: emotionPreferences,
+        aromas: aromaPreferences
+    };
+    
+    // 如果有新密码
+    if (password) {
+        // 在实际应用中，这里应该调用API更新密码
+        console.log('密码已更新');
+    }
+    
+    // 保存到localStorage
+    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+    
+    // 更新UI
+    updateUIForLoggedInUser();
+    
+    // 关闭模态框
+    profileModal.classList.remove('active');
+    
+    // 显示成功消息
+    alert('个人资料已更新');
+}
+
+// 显示表单错误
+function showFormError(inputId, message) {
+    const errorElement = document.getElementById(inputId).nextElementSibling;
+    if (errorElement && errorElement.classList.contains('form-error')) {
+        errorElement.textContent = message;
+    } else {
+        const nextElement = document.getElementById(inputId).parentElement.nextElementSibling;
+        if (nextElement && nextElement.classList.contains('form-error')) {
+            nextElement.textContent = message;
+        }
+    }
+}
+
+// 清除表单错误
+function clearFormError(inputId) {
+    const errorElement = document.getElementById(inputId).nextElementSibling;
+    if (errorElement && errorElement.classList.contains('form-error')) {
+        errorElement.textContent = '';
+    } else {
+        const nextElement = document.getElementById(inputId).parentElement.nextElementSibling;
+        if (nextElement && nextElement.classList.contains('form-error')) {
+            nextElement.textContent = '';
+        }
+    }
+}
+
+// 验证邮箱格式
+function isValidEmail(email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+}
+
+// 首字母大写
+function capitalizeFirstLetter(string) {
+    return string.charAt(0).toUpperCase() + string.slice(1);
 }
 
 // 初始化
