@@ -1,9 +1,11 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
-from app import db
+from app import db, csrf
 from app.models import User, ChatMessage, EmotionRecord, AromaProduct, product_emotions
 import json
 from datetime import datetime
+import os
+from werkzeug.utils import secure_filename
 
 api_bp = Blueprint('api', __name__)
 
@@ -139,85 +141,140 @@ def product_detail(product_id):
 @login_required
 def get_profile():
     """获取用户个人资料"""
-    return jsonify({
-        'success': True,
-        'user': {
-            'id': current_user.id,
-            'username': current_user.username,
-            'email': current_user.email,
-            'avatar': current_user.avatar,
-            'emotion_preferences': json.loads(current_user.emotion_preferences),
-            'aroma_preferences': json.loads(current_user.aroma_preferences),
-            'created_at': current_user.created_at.isoformat(),
-            'last_login': current_user.last_login.isoformat()
-        }
-    })
+    try:
+        # 处理默认头像
+        avatar_url = current_user.avatar
+        if not avatar_url or avatar_url.startswith('/default_avatar'):
+            avatar_url = '/static/img/default_avatar.png'
+        
+        # 解析用户偏好
+        emotions = json.loads(current_user.emotion_preferences) if current_user.emotion_preferences else []
+        aromas = json.loads(current_user.aroma_preferences) if current_user.aroma_preferences else []
+        
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': current_user.id,
+                'username': current_user.username,
+                'email': current_user.email,
+                'avatar': avatar_url,
+                'preferences': {
+                    'emotions': emotions,
+                    'aromas': aromas
+                },
+                'created_at': current_user.created_at.isoformat(),
+                'last_login': current_user.last_login.isoformat() if current_user.last_login else None
+            }
+        })
+    except Exception as e:
+        current_app.logger.error(f'获取用户资料异常: {str(e)}')
+        return jsonify({'success': False, 'message': f'获取用户资料失败: {str(e)}'}), 500
 
+# 为个人资料更新API豁免CSRF保护
+@csrf.exempt
 @api_bp.route('/user/profile', methods=['PUT'])
 @login_required
 def update_profile():
     """更新用户个人资料"""
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({'success': False, 'message': '无效的请求数据'}), 400
-    
-    # 更新用户名
-    username = data.get('username')
-    if username and username != current_user.username:
-        # 检查用户名是否已存在
-        if User.query.filter_by(username=username).first():
-            return jsonify({'success': False, 'message': '用户名已存在'}), 400
-        current_user.username = username
-    
-    # 更新情绪偏好
-    emotion_preferences = data.get('emotion_preferences')
-    if emotion_preferences:
-        current_user.emotion_preferences = json.dumps(emotion_preferences)
-    
-    # 更新香薰偏好
-    aroma_preferences = data.get('aroma_preferences')
-    if aroma_preferences:
-        current_user.aroma_preferences = json.dumps(aroma_preferences)
-    
-    # 更新密码
-    password = data.get('password')
-    if password:
-        current_user.password = password
-    
-    db.session.commit()
-    
-    return jsonify({'success': True, 'message': '个人资料更新成功'})
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'success': False, 'message': '无效的请求数据'}), 400
+        
+        current_app.logger.info(f'更新用户资料请求数据: {data}')
+        
+        # 更新用户名
+        username = data.get('username')
+        if username and username != current_user.username:
+            # 检查用户名是否已存在
+            if User.query.filter_by(username=username).first() and User.query.filter_by(username=username).first().id != current_user.id:
+                return jsonify({'success': False, 'message': '用户名已存在'}), 400
+            current_user.username = username
+        
+        # 更新情绪偏好
+        emotion_preferences = data.get('emotion_preferences')
+        if emotion_preferences is not None:
+            current_user.emotion_preferences = json.dumps(emotion_preferences)
+        
+        # 更新香薰偏好
+        aroma_preferences = data.get('aroma_preferences')
+        if aroma_preferences is not None:
+            current_user.aroma_preferences = json.dumps(aroma_preferences)
+        
+        # 更新密码
+        password = data.get('password')
+        if password:
+            current_user.password = password
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True, 
+            'message': '个人资料更新成功',
+            'user': {
+                'id': current_user.id,
+                'username': current_user.username,
+                'email': current_user.email,
+                'avatar': current_user.avatar,
+                'preferences': {
+                    'emotions': json.loads(current_user.emotion_preferences) if current_user.emotion_preferences else [],
+                    'aromas': json.loads(current_user.aroma_preferences) if current_user.aroma_preferences else []
+                }
+            }
+        })
+    except Exception as e:
+        db.session.rollback()
+        error_msg = f'更新用户资料异常: {str(e)}'
+        current_app.logger.error(error_msg)
+        return jsonify({'success': False, 'message': error_msg}), 500
 
+# 为头像上传API单独豁免CSRF保护
+@csrf.exempt
 @api_bp.route('/user/avatar', methods=['POST'])
 @login_required
 def update_avatar():
     """更新用户头像"""
+    # 简单的错误处理
     if 'avatar' not in request.files:
         return jsonify({'success': False, 'message': '没有上传文件'}), 400
     
     file = request.files['avatar']
-    
     if file.filename == '':
         return jsonify({'success': False, 'message': '没有选择文件'}), 400
     
-    if file and allowed_file(file.filename):
-        # 保存文件
-        filename = f"user_{current_user.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
-        file.save(f"app/static/uploads/avatars/{filename}")
+    # 检查文件类型
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
+    if '.' not in file.filename or file.filename.rsplit('.', 1)[1].lower() not in allowed_extensions:
+        return jsonify({'success': False, 'message': '只支持PNG、JPG、JPEG和GIF格式'}), 400
+    
+    try:
+        # 确保上传目录存在
+        upload_dir = os.path.join(current_app.root_path, 'static', 'uploads', 'avatars')
+        if not os.path.exists(upload_dir):
+            os.makedirs(upload_dir)
+        
+        # 生成文件名并保存
+        filename = f"user_{current_user.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{file.filename.rsplit('.', 1)[1].lower()}"
+        file_path = os.path.join(upload_dir, filename)
+        file.save(file_path)
         
         # 更新用户头像
-        current_user.avatar = f"/static/uploads/avatars/{filename}"
+        avatar_url = f"/static/uploads/avatars/{filename}"
+        current_user.avatar = avatar_url
         db.session.commit()
         
-        return jsonify({'success': True, 'avatar': current_user.avatar})
+        # 返回成功响应
+        return jsonify({
+            'success': True,
+            'avatar': avatar_url,
+            'message': '头像上传成功'
+        })
     
-    return jsonify({'success': False, 'message': '不支持的文件类型'}), 400
-
-def allowed_file(filename):
-    """检查文件类型是否允许"""
-    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"头像上传失败: {str(e)}")
+        return jsonify({'success': False, 'message': '头像上传失败，请稍后再试'}), 500
 
 def analyze_emotion(message):
     """分析情绪（简单实现，实际应用中应使用NLP）"""
