@@ -87,17 +87,28 @@ if (isBrowser) {
 
     // 初始化函数
     function init() {
-        // 加载初始推荐
-        loadRecommendations();
+        console.log('初始化应用...');
         
-        // 事件监听器
+        // 加载保存的主题
+        loadSavedTheme();
+        
+        // 设置事件监听器
         setupEventListeners();
         
         // 自动调整文本区域高度
         autoResizeTextarea();
         
-        // 检查用户登录状态
+        // 初始化模态框
+        initModals();
+        
+        // 加载推荐
+        loadRecommendations();
+        
+        // 检查登录状态
         checkLoginStatus();
+        
+        // 初始化聊天区域滚动
+        scrollChatToBottom();
     }
 
     // 设置事件监听器
@@ -256,11 +267,100 @@ if (isBrowser) {
         // 保存个人资料
         profileSaveButton.addEventListener('click', saveProfile);
         
-        // 阻止模态框内部点击事件冒泡到window
-        document.querySelectorAll('.modal-content').forEach(content => {
-            content.addEventListener('click', (e) => {
+        // 确保模态框只能通过关闭按钮关闭，移除点击外部区域关闭的功能
+        document.querySelectorAll('.modal').forEach(modal => {
+            // 移除所有点击事件
+            const newModal = modal.cloneNode(true);
+            modal.parentNode.replaceChild(newModal, modal);
+            
+            // 重新绑定关闭按钮事件
+            const closeBtn = newModal.querySelector('.close-modal');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => {
+                    newModal.classList.remove('active');
+                });
+            }
+            
+            // 阻止模态框背景的点击事件
+            newModal.addEventListener('click', (e) => {
                 e.stopPropagation();
             });
+            
+            // 根据模态框ID重新绑定特定事件
+            if (newModal.id === 'authModal') {
+                // 重新绑定标签页切换事件
+                const authTabs = newModal.querySelectorAll('.auth-tab');
+                const loginForm = newModal.querySelector('#loginForm');
+                const registerForm = newModal.querySelector('#registerForm');
+                
+                authTabs.forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        const tabName = tab.dataset.tab;
+                        
+                        // 更新标签页状态
+                        authTabs.forEach(t => t.classList.remove('active'));
+                        tab.classList.add('active');
+                        
+                        // 更新表单显示
+                        if (tabName === 'login') {
+                            loginForm.classList.add('active');
+                            registerForm.classList.remove('active');
+                        } else {
+                            loginForm.classList.remove('active');
+                            registerForm.classList.add('active');
+                        }
+                    });
+                });
+                
+                // 重新绑定密码显示/隐藏切换事件
+                newModal.querySelectorAll('.toggle-password').forEach(toggle => {
+                    toggle.addEventListener('click', () => {
+                        const passwordInput = toggle.previousElementSibling;
+                        
+                        if (passwordInput.type === 'password') {
+                            passwordInput.type = 'text';
+                            toggle.classList.remove('fa-eye-slash');
+                            toggle.classList.add('fa-eye');
+                        } else {
+                            passwordInput.type = 'password';
+                            toggle.classList.remove('fa-eye');
+                            toggle.classList.add('fa-eye-slash');
+                        }
+                    });
+                });
+                
+                // 重新绑定表单提交事件
+                const loginFormElement = newModal.querySelector('#loginFormElement');
+                if (loginFormElement) {
+                    loginFormElement.addEventListener('submit', (e) => {
+                        e.preventDefault();
+                        window.handleLoginSubmit(e);
+                    });
+                }
+                
+                const registerFormElement = newModal.querySelector('#registerFormElement');
+                if (registerFormElement) {
+                    registerFormElement.addEventListener('submit', (e) => {
+                        e.preventDefault();
+                        window.handleRegisterSubmit(e);
+                    });
+                }
+            } else if (newModal.id === 'profileModal') {
+                // 重新绑定头像上传事件
+                const avatarUpload = newModal.querySelector('#avatarUpload');
+                if (avatarUpload) {
+                    avatarUpload.addEventListener('change', handleAvatarUpload);
+                }
+                
+                // 重新绑定保存个人资料事件
+                const profileSaveButton = newModal.querySelector('.profile-save-button');
+                if (profileSaveButton) {
+                    profileSaveButton.addEventListener('click', saveProfile);
+                }
+            } else if (newModal.id === 'productModal') {
+                // 产品详情模态框特定事件
+                // 暂时没有特定事件需要重新绑定
+            }
         });
     }
 
@@ -306,34 +406,46 @@ if (isBrowser) {
 
     // 添加消息到聊天
     function addMessageToChat(sender, content) {
-        const messageElement = document.createElement('div');
-        messageElement.classList.add('message', sender);
+        const chatMessages = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${sender}`;
         
-        const avatarElement = document.createElement('div');
-        avatarElement.classList.add('message-avatar');
+        const avatarDiv = document.createElement('div');
+        avatarDiv.className = 'message-avatar';
         
-        const imgElement = document.createElement('img');
-        imgElement.src = sender === 'user' 
-            ? 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60' 
-            : document.querySelector(`.persona[data-persona="${currentPersona}"] img`).src;
-        imgElement.alt = sender === 'user' ? '用户头像' : '助手头像';
+        const avatarImg = document.createElement('img');
+        if (sender === 'user') {
+            // 使用用户头像
+            const userAvatar = document.querySelector('.user-avatar img');
+            avatarImg.src = userAvatar ? userAvatar.src : 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60';
+        } else {
+            // 使用助手头像
+            const personaAvatar = document.querySelector('.persona.active .persona-avatar img');
+            avatarImg.src = personaAvatar ? personaAvatar.src : 'https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60';
+        }
+        avatarImg.alt = sender === 'user' ? '用户头像' : '助手头像';
         
-        avatarElement.appendChild(imgElement);
+        avatarDiv.appendChild(avatarImg);
+        messageDiv.appendChild(avatarDiv);
         
-        const contentElement = document.createElement('div');
-        contentElement.classList.add('message-content');
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
         
-        const textElement = document.createElement('p');
-        textElement.textContent = content;
+        const paragraph = document.createElement('p');
+        paragraph.textContent = content;
         
-        contentElement.appendChild(textElement);
+        contentDiv.appendChild(paragraph);
+        messageDiv.appendChild(contentDiv);
         
-        messageElement.appendChild(avatarElement);
-        messageElement.appendChild(contentElement);
-        
-        chatMessages.appendChild(messageElement);
+        chatMessages.appendChild(messageDiv);
         
         // 滚动到底部
+        scrollChatToBottom();
+    }
+
+    // 滚动聊天区域到底部
+    function scrollChatToBottom() {
+        const chatMessages = document.getElementById('chatMessages');
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
@@ -534,26 +646,26 @@ if (isBrowser) {
         const cardContent = document.createElement('div');
         cardContent.classList.add('card-content');
         
-        const title = document.createElement('h3');
-        title.classList.add('card-title');
-        title.textContent = product.name;
+        const cardTitle = document.createElement('h3');
+        cardTitle.classList.add('card-title');
+        cardTitle.textContent = product.name;
         
-        const description = document.createElement('p');
-        description.classList.add('card-description');
-        description.textContent = product.description;
+        const cardDescription = document.createElement('p');
+        cardDescription.classList.add('card-description');
+        cardDescription.textContent = product.description;
         
-        const emotion = document.createElement('span');
-        emotion.classList.add('card-emotion');
-        emotion.textContent = product.emotions[0];
+        const cardEmotions = document.createElement('div');
+        cardEmotions.classList.add('card-emotion');
+        cardEmotions.textContent = '适用情绪: ' + product.emotions.join(', ');
         
-        cardContent.appendChild(title);
-        cardContent.appendChild(description);
-        cardContent.appendChild(emotion);
+        cardContent.appendChild(cardTitle);
+        cardContent.appendChild(cardDescription);
+        cardContent.appendChild(cardEmotions);
         
         card.appendChild(cardImage);
         card.appendChild(cardContent);
         
-        // 点击事件
+        // 添加点击事件
         card.addEventListener('click', () => {
             showProductDetails(product);
         });
@@ -564,10 +676,12 @@ if (isBrowser) {
     // 显示产品详情
     function showProductDetails(product) {
         const productModal = document.getElementById('productModal');
-        const productDetails = document.querySelector('.product-details');
+        const productDetails = productModal.querySelector('.product-details');
+        
+        // 清空现有内容
         productDetails.innerHTML = '';
         
-        // 产品图片
+        // 创建产品图片
         const productImage = document.createElement('div');
         productImage.classList.add('product-image');
         
@@ -577,7 +691,7 @@ if (isBrowser) {
         
         productImage.appendChild(img);
         
-        // 产品信息
+        // 创建产品信息
         const productInfo = document.createElement('div');
         productInfo.classList.add('product-info');
         
@@ -585,7 +699,7 @@ if (isBrowser) {
         title.textContent = product.name;
         
         const description = document.createElement('p');
-        description.textContent = product.fullDescription;
+        description.textContent = product.fullDescription || product.description;
         
         const emotionsTitle = document.createElement('h4');
         emotionsTitle.textContent = '适用情绪:';
@@ -608,14 +722,18 @@ if (isBrowser) {
         productDetails.appendChild(productImage);
         productDetails.appendChild(productInfo);
         
-        // 显示模态框
-        productModal.classList.add('active');
-        
-        // 确保关闭按钮能够正常工作
-        const closeButton = productModal.querySelector('.close-modal');
-        closeButton.addEventListener('click', () => {
-            productModal.classList.remove('active');
-        });
+        // 使用全局openModal函数打开模态框
+        if (typeof window.openModal === 'function') {
+            window.openModal('productModal');
+        } else {
+            // 如果全局函数不可用，则使用传统方式
+            productModal.classList.add('active');
+            const modalOverlay = document.getElementById('modalOverlay');
+            if (modalOverlay) {
+                modalOverlay.classList.add('active');
+            }
+            document.body.classList.add('modal-open');
+        }
     }
 
     // 添加CSS样式
@@ -720,30 +838,28 @@ if (isBrowser) {
     }
 
     // 处理登录
-    function handleLogin() {
-        // 获取登录表单
-        const loginForm = document.getElementById('loginForm');
+    function handleLogin(e) {
+        // 阻止默认表单提交
+        if (e) e.preventDefault();
         
-        // 如果表单存在，直接提交
-        if (loginForm) {
-            loginForm.submit();
-        } else {
-            // 如果表单不存在，跳转到登录页面
-            window.location.href = '/auth/login';
+        // 注意：实际的表单提交逻辑已经在index.html中的handleLoginSubmit函数中处理
+        // 这个函数现在只是作为备用，以防直接点击按钮而不是提交表单
+        const loginFormElement = document.getElementById('loginFormElement');
+        if (loginFormElement) {
+            loginFormElement.dispatchEvent(new Event('submit'));
         }
     }
 
     // 处理注册
-    function handleRegister() {
-        // 获取注册表单
-        const registerForm = document.getElementById('registerForm');
+    function handleRegister(e) {
+        // 阻止默认表单提交
+        if (e) e.preventDefault();
         
-        // 如果表单存在，直接提交
-        if (registerForm) {
-            registerForm.submit();
-        } else {
-            // 如果表单不存在，跳转到注册页面
-            window.location.href = '/auth/register';
+        // 注意：实际的表单提交逻辑已经在index.html中的handleRegisterSubmit函数中处理
+        // 这个函数现在只是作为备用，以防直接点击按钮而不是提交表单
+        const registerFormElement = document.getElementById('registerFormElement');
+        if (registerFormElement) {
+            registerFormElement.dispatchEvent(new Event('submit'));
         }
     }
 
@@ -809,6 +925,63 @@ if (isBrowser) {
                     if (checkbox) checkbox.checked = true;
                 });
             }
+        }
+        
+        // 直接绑定用户菜单交互事件
+        setTimeout(function() {
+            // 为用户菜单切换按钮添加点击事件
+            const userMenuToggle = document.querySelector('.user-menu-toggle');
+            const userMenu = document.querySelector('.user-menu');
+            
+            if (userMenuToggle && userMenu) {
+                // 移除已有的事件监听器
+                userMenuToggle.removeEventListener('click', toggleUserMenu);
+                
+                // 添加新的事件监听器
+                userMenuToggle.addEventListener('click', toggleUserMenu);
+                
+                // 为菜单项添加点击事件
+                const menuItems = userMenu.querySelectorAll('li');
+                menuItems.forEach((item, index) => {
+                    // 移除已有的事件监听器
+                    item.removeEventListener('click', handleMenuItemClick);
+                    
+                    // 添加新的事件监听器，使用闭包保存index
+                    item.addEventListener('click', function(e) {
+                        handleMenuItemClick(e, index);
+                    });
+                });
+            }
+        }, 100);
+    }
+    
+    // 切换用户菜单显示/隐藏
+    function toggleUserMenu(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        const userMenu = document.querySelector('.user-menu');
+        if (userMenu) {
+            userMenu.classList.toggle('active');
+            console.log('用户菜单切换 (app.js)');
+        }
+    }
+    
+    // 处理菜单项点击
+    function handleMenuItemClick(e, index) {
+        e.stopPropagation();
+        const userMenu = document.querySelector('.user-menu');
+        if (userMenu) {
+            userMenu.classList.remove('active');
+        }
+        
+        if (index === 0) { // 个人资料
+            profileModal.classList.add('active');
+            document.getElementById('modalOverlay').classList.add('active');
+            document.body.classList.add('modal-open');
+        } else if (index === 1) { // 设置
+            alert('设置功能即将上线');
+        } else if (index === 2) { // 退出登录
+            handleLogout();
         }
     }
 
@@ -993,25 +1166,34 @@ if (isBrowser) {
 
     // 初始化模态框
     function initModals() {
-        // 获取所有模态框
-        const modals = document.querySelectorAll('.modal');
+        // 确保所有模态框的关闭按钮正常工作
+        document.querySelectorAll('.close-modal').forEach(closeBtn => {
+            closeBtn.addEventListener('click', function() {
+                const modal = this.closest('.modal');
+                if (modal) {
+                    // 使用全局closeModal函数关闭模态框
+                    if (typeof window.closeModal === 'function') {
+                        window.closeModal(modal.id);
+                    } else {
+                        // 如果全局函数不可用，则使用传统方式
+                        modal.classList.remove('active');
+                        
+                        // 隐藏遮罩层
+                        const modalOverlay = document.getElementById('modalOverlay');
+                        if (modalOverlay) {
+                            modalOverlay.classList.remove('active');
+                        }
+                        document.body.classList.remove('modal-open');
+                    }
+                }
+            });
+        });
         
-        // 为每个模态框添加点击事件，防止点击内容区域关闭模态框
-        modals.forEach(modal => {
-            const modalContent = modal.querySelector('.modal-content');
-            if (modalContent) {
-                modalContent.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                });
-            }
-            
-            // 为关闭按钮添加事件
-            const closeButton = modal.querySelector('.close-modal');
-            if (closeButton) {
-                closeButton.addEventListener('click', () => {
-                    modal.classList.remove('active');
-                });
-            }
+        // 阻止模态框内容区域的点击事件冒泡到模态框本身
+        document.querySelectorAll('.modal-content').forEach(content => {
+            content.addEventListener('click', function(e) {
+                e.stopPropagation();
+            });
         });
     }
 } 

@@ -40,18 +40,27 @@ def login():
     # 查找用户
     user = User.query.filter((User.email == email) | (User.username == email)).first()
     
+    # 检查是否为AJAX请求
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.accept_mimetypes.values()
+    
     if not user:
         print(f"User not found: {email}")
+        if is_ajax:
+            return jsonify({'success': False, 'message': '邮箱/用户名或密码错误'})
         flash('邮箱/用户名或密码错误', 'danger')
         return redirect(url_for('auth.login'))
     
     if not user.verify_password(password):
         print(f"Invalid password for user: {email}")
+        if is_ajax:
+            return jsonify({'success': False, 'message': '邮箱/用户名或密码错误'})
         flash('邮箱/用户名或密码错误', 'danger')
         return redirect(url_for('auth.login'))
     
     if not user.is_active:
         print(f"Inactive user: {email}")
+        if is_ajax:
+            return jsonify({'success': False, 'message': '账户已被禁用'})
         flash('账户已被禁用', 'danger')
         return redirect(url_for('auth.login'))
     
@@ -61,6 +70,9 @@ def login():
     # 更新最后登录时间
     user.last_login = db.func.now()
     db.session.commit()
+    
+    if is_ajax:
+        return jsonify({'success': True, 'message': '登录成功', 'next': next_url or url_for('main.index')})
     
     flash('登录成功', 'success')
     
@@ -98,21 +110,32 @@ def register():
     
     print(f"Form data: username={username}, email={email}, password={password}")
     
+    # 检查是否为AJAX请求
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.accept_mimetypes.values()
+    
     # 表单验证
     if not username or not email or not password:
+        if is_ajax:
+            return jsonify({'success': False, 'message': '请填写所有必填字段'})
         flash('请填写所有必填字段', 'danger')
         return redirect(url_for('auth.register'))
     
     if password != confirm_password:
+        if is_ajax:
+            return jsonify({'success': False, 'message': '两次输入的密码不一致'})
         flash('两次输入的密码不一致', 'danger')
         return redirect(url_for('auth.register'))
     
     # 验证用户名和邮箱是否已存在
     if User.query.filter_by(username=username).first():
+        if is_ajax:
+            return jsonify({'success': False, 'message': '用户名已存在'})
         flash('用户名已存在', 'danger')
         return redirect(url_for('auth.register'))
     
     if User.query.filter_by(email=email).first():
+        if is_ajax:
+            return jsonify({'success': False, 'message': '邮箱已存在'})
         flash('邮箱已存在', 'danger')
         return redirect(url_for('auth.register'))
     
@@ -132,11 +155,19 @@ def register():
     # 发送确认邮件
     try:
         send_confirmation_email(user)
-        flash('注册成功，请查收确认邮件', 'success')
+        message = '注册成功，请查收确认邮件'
+        if is_ajax:
+            return jsonify({'success': True, 'message': message})
+        flash(message, 'success')
     except Exception as e:
         print(f"Failed to send confirmation email: {str(e)}")
-        flash('注册成功，但发送确认邮件失败，请联系管理员', 'warning')
+        message = '注册成功，但发送确认邮件失败，请联系管理员'
+        if is_ajax:
+            return jsonify({'success': True, 'message': message})
+        flash(message, 'warning')
     
+    if is_ajax:
+        return jsonify({'success': True, 'message': '注册成功'})
     return redirect(url_for('auth.login'))
 
 @auth_bp.route('/confirm/<token>')
