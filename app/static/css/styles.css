@@ -372,6 +372,41 @@ body {
     font-size: 0.8rem;
 }
 
+/* 登录/注册模态框 */
+.auth-modal {
+    max-width: 450px;
+    padding: 30px;
+    overflow: visible;
+}
+
+.auth-tabs {
+    display: flex;
+    margin-bottom: 25px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.auth-tab {
+    padding: 12px 20px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: var(--transition);
+    border-bottom: 2px solid transparent;
+}
+
+.auth-tab.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.auth-form {
+    display: none;
+    max-height: 70vh;
+}
+
+.auth-form.active {
+    display: block;
+}
+
 /* 模态框样式 */
 .modal {
     display: none;
@@ -453,6 +488,32 @@ body {
     color: var(--primary-color);
     border-radius: 20px;
     font-size: 0.9rem;
+}
+
+/* 注册表单特殊样式 */
+.register-form {
+    overflow-y: auto;
+    padding-right: 5px;
+    max-height: 350px;
+    margin-bottom: 20px;
+}
+
+/* 自定义滚动条样式 */
+.register-form::-webkit-scrollbar {
+    width: 6px;
+}
+
+.register-form::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.register-form::-webkit-scrollbar-thumb {
+    background-color: rgba(126, 87, 194, 0.3);
+    border-radius: 3px;
+}
+
+.register-form::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(126, 87, 194, 0.5);
 }
 
 /* 响应式设计 */
@@ -680,6 +741,7 @@ body {
 .auth-modal {
     max-width: 450px;
     padding: 30px;
+    overflow: visible;
 }
 
 .auth-tabs {
@@ -703,6 +765,7 @@ body {
 
 .auth-form {
     display: none;
+    max-height: 70vh;
 }
 
 .auth-form.active {
@@ -763,10 +826,24 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    margin-bottom: 15px;
+}
+
+.remember-checkbox {
+    display: flex;
+    align-items: center;
+}
+
+.remember-me label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    margin-right: auto;
 }
 
 .remember-me input[type="checkbox"] {
     margin-right: 8px;
+    cursor: pointer;
 }
 
 .forgot-password {
@@ -790,7 +867,8 @@ body {
     font-weight: 500;
     cursor: pointer;
     transition: var(--transition);
-    margin-bottom: 20px;
+    margin-bottom: 10px;
+    margin-top: 10px;
 }
 
 .auth-button-submit:hover {

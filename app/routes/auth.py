@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, jsonify
 from flask_login import login_user, logout_user, login_required, current_user
 from app import db, mail
 from app.models import User
@@ -13,25 +13,47 @@ auth_bp = Blueprint('auth', __name__)
 def get_serializer():
     return URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
 
-@auth_bp.route('/login', methods=['POST'])
+@auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     """用户登录"""
-    data = request.get_json()
+    # GET请求返回登录页面
+    if request.method == 'GET':
+        next_url = request.args.get('next', '')
+        return render_template('login.html', next=next_url)
     
-    if not data:
-        return json.dumps({'success': False, 'message': '无效的请求数据'}), 400
+    # POST请求处理登录
+    print("=" * 50)
+    print("LOGIN REQUEST")
+    print(f"Content-Type: {request.content_type}")
+    print(f"Form: {request.form}")
+    print("=" * 50)
     
-    email = data.get('email', '')
-    password = data.get('password', '')
-    remember = data.get('remember', False)
+    # 获取表单数据
+    email = request.form.get('email', '')
+    password = request.form.get('password', '')
+    remember = request.form.get('remember', 'false')
+    remember = remember.lower() in ['true', '1', 'yes', 'on']
+    next_url = request.form.get('next', '')
     
+    print(f"Form data: email={email}, password={password}, remember={remember}")
+    
+    # 查找用户
     user = User.query.filter((User.email == email) | (User.username == email)).first()
     
-    if user is None or not user.verify_password(password):
-        return json.dumps({'success': False, 'message': '邮箱/用户名或密码错误'}), 401
+    if not user:
+        print(f"User not found: {email}")
+        flash('邮箱/用户名或密码错误', 'danger')
+        return redirect(url_for('auth.login'))
+    
+    if not user.verify_password(password):
+        print(f"Invalid password for user: {email}")
+        flash('邮箱/用户名或密码错误', 'danger')
+        return redirect(url_for('auth.login'))
     
     if not user.is_active:
-        return json.dumps({'success': False, 'message': '账户已被禁用'}), 403
+        print(f"Inactive user: {email}")
+        flash('账户已被禁用', 'danger')
+        return redirect(url_for('auth.login'))
     
     # 登录用户
     login_user(user, remember=remember)
@@ -40,59 +62,82 @@ def login():
     user.last_login = db.func.now()
     db.session.commit()
     
-    return json.dumps({
-        'success': True, 
-        'user': {
-            'id': user.id,
-            'username': user.username,
-            'email': user.email,
-            'avatar': user.avatar,
-            'emotion_preferences': json.loads(user.emotion_preferences),
-            'aroma_preferences': json.loads(user.aroma_preferences)
-        }
-    })
+    flash('登录成功', 'success')
+    
+    # 重定向到下一个页面或首页
+    if next_url:
+        return redirect(next_url)
+    return redirect(url_for('main.index'))
 
 @auth_bp.route('/logout')
 @login_required
 def logout():
     """用户登出"""
     logout_user()
-    return json.dumps({'success': True})
+    return jsonify({'success': True})
 
-@auth_bp.route('/register', methods=['POST'])
+@auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
     """用户注册"""
-    data = request.get_json()
+    # GET请求返回注册页面
+    if request.method == 'GET':
+        return render_template('register.html')
     
-    if not data:
-        return json.dumps({'success': False, 'message': '无效的请求数据'}), 400
+    # POST请求处理注册
+    print("=" * 50)
+    print("REGISTER REQUEST")
+    print(f"Content-Type: {request.content_type}")
+    print(f"Form: {request.form}")
+    print("=" * 50)
     
-    username = data.get('username', '')
-    email = data.get('email', '')
-    password = data.get('password', '')
+    # 获取表单数据
+    username = request.form.get('username', '')
+    email = request.form.get('email', '')
+    password = request.form.get('password', '')
+    confirm_password = request.form.get('confirm_password', '')
+    
+    print(f"Form data: username={username}, email={email}, password={password}")
+    
+    # 表单验证
+    if not username or not email or not password:
+        flash('请填写所有必填字段', 'danger')
+        return redirect(url_for('auth.register'))
+    
+    if password != confirm_password:
+        flash('两次输入的密码不一致', 'danger')
+        return redirect(url_for('auth.register'))
     
     # 验证用户名和邮箱是否已存在
     if User.query.filter_by(username=username).first():
-        return json.dumps({'success': False, 'message': '用户名已存在'}), 400
+        flash('用户名已存在', 'danger')
+        return redirect(url_for('auth.register'))
     
     if User.query.filter_by(email=email).first():
-        return json.dumps({'success': False, 'message': '邮箱已存在'}), 400
+        flash('邮箱已存在', 'danger')
+        return redirect(url_for('auth.register'))
     
     # 创建新用户
     user = User(
         username=username,
         email=email,
         password=password,
-        is_confirmed=False
+        is_confirmed=False,
+        emotion_preferences='[]',
+        aroma_preferences='[]'
     )
     
     db.session.add(user)
     db.session.commit()
     
     # 发送确认邮件
-    send_confirmation_email(user)
+    try:
+        send_confirmation_email(user)
+        flash('注册成功，请查收确认邮件', 'success')
+    except Exception as e:
+        print(f"Failed to send confirmation email: {str(e)}")
+        flash('注册成功，但发送确认邮件失败，请联系管理员', 'warning')
     
-    return json.dumps({'success': True, 'message': '注册成功，请查收确认邮件'})
+    return redirect(url_for('auth.login'))
 
 @auth_bp.route('/confirm/<token>')
 def confirm(token):
