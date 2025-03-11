@@ -66,7 +66,7 @@ body {
     text-align: center;
 }
 
-.persona-selector h2, 
+.persona-selector h2,
 .emotion-display h2 {
     font-size: 1.2rem;
     margin-bottom: 15px;
@@ -78,6 +78,96 @@ body {
     flex-direction: column;
     gap: 15px;
     margin-bottom: 30px;
+}
+
+/* 新增的下拉式人设选择器样式 */
+.current-persona-container {
+    position: relative;
+    margin-bottom: 30px;
+}
+
+.current-persona {
+    display: flex;
+    align-items: center;
+    padding: 12px 15px;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: var(--transition);
+    border: 2px solid var(--primary-color);
+    background-color: var(--card-color);
+    position: relative;
+    box-shadow: var(--shadow);
+}
+
+.current-persona:hover {
+    background-color: rgba(126, 87, 194, 0.05);
+}
+
+.persona-dropdown-toggle {
+    margin-left: auto;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s ease;
+}
+
+.persona-dropdown-toggle.active i {
+    transform: rotate(180deg);
+}
+
+.persona-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: var(--card-color);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+    z-index: 100;
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+    margin-top: 5px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    backdrop-filter: none;
+}
+
+.persona-dropdown.active {
+    display: flex;
+}
+
+.persona-option {
+    display: flex;
+    align-items: center;
+    padding: 12px 15px;
+    cursor: pointer;
+    transition: var(--transition);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.persona-option:last-child {
+    border-bottom: none;
+}
+
+.persona-option:hover {
+    background-color: rgba(126, 87, 194, 0.1);
+}
+
+/* 深色模式下的样式调整 */
+[data-theme="dark"] .persona-dropdown {
+    background-color: var(--card-color);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .persona-option {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .persona-option:hover {
+    background-color: rgba(126, 87, 194, 0.2);
 }
 
 .persona {
@@ -150,49 +240,10 @@ body {
 }
 
 .emotion-description {
-    font-size: 0.9rem;
-    color: var(--text-light);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
     text-align: center;
     line-height: 1.4;
-}
-
-.emotion-types {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-}
-
-.emotion-type {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 10px;
-    border-radius: var(--border-radius);
-    background-color: var(--card-color);
-    box-shadow: var(--shadow);
-    transition: var(--transition);
-    cursor: pointer;
-}
-
-.emotion-type:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-}
-
-.emotion-type.active {
-    background-color: rgba(126, 87, 194, 0.2);
-    border: 1px solid var(--primary-color);
-}
-
-.emotion-type i {
-    font-size: 1.5rem;
-    margin-bottom: 5px;
-    color: var(--primary-color);
-}
-
-.emotion-type span {
-    font-size: 0.8rem;
-    font-weight: 500;
 }
 
 /* 主内容区 - 聊天界面 */
@@ -261,6 +312,11 @@ body {
 
 .message.assistant .message-content {
     background-color: var(--card-color);
+}
+
+.message-content p {
+    margin: 0;
+    line-height: 1.5;
 }
 
 .chat-input {
@@ -535,7 +591,7 @@ body {
     .app-container {
         grid-template-columns: 220px 1fr;
     }
-    
+
     .recommendations {
         display: none;
     }
@@ -545,40 +601,36 @@ body {
     .app-container {
         grid-template-columns: 1fr;
     }
-    
+
     .sidebar {
         display: none;
     }
-    
+
     .message {
         max-width: 90%;
     }
-    
+
     .auth-button {
         top: 20px;
         right: 20px;
         padding: 6px 12px;
         font-size: 0.9rem;
     }
-    
+
     .theme-toggle {
         bottom: 20px;
         right: 20px;
         width: 45px;
         height: 45px;
     }
-    
+
     .profile-content {
         flex-direction: column;
     }
-    
+
     .emotion-preferences,
     .aroma-preferences {
         grid-template-columns: 1fr;
-    }
-    
-    .emotion-types {
-        grid-template-columns: repeat(2, 1fr);
     }
 }
 
@@ -979,4 +1031,33 @@ body {
 
 .profile-save-button:hover {
     background-color: var(--primary-dark);
-} 
+}
+
+/* 重试按钮样式 */
+.retry-message {
+    margin-top: 8px;
+}
+
+.retry-button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.retry-button:hover {
+    background-color: var(--primary-dark);
+}
+
+[data-theme="dark"] .retry-button {
+    background-color: var(--primary-light);
+    color: var(--card-color);
+}
+
+[data-theme="dark"] .retry-button:hover {
+    background-color: var(--primary-color);
+}

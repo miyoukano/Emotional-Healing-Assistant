@@ -122,48 +122,41 @@ if (isBrowser) {
             }
         });
 
-        // 人设切换
-        personaElements.forEach(persona => {
-            persona.addEventListener('click', () => {
-                changePersona(persona.dataset.persona);
+        // 人设下拉菜单切换
+        const personaDropdownToggle = document.querySelector('.persona-dropdown-toggle');
+        const personaDropdown = document.getElementById('personaDropdown');
+        
+        if (personaDropdownToggle && personaDropdown) {
+            personaDropdownToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                personaDropdownToggle.classList.toggle('active');
+                personaDropdown.classList.toggle('active');
             });
-        });
-
-        // 情绪类型点击
-        document.querySelectorAll('.emotion-type').forEach(type => {
-            type.addEventListener('click', () => {
-                const emotion = type.dataset.emotion;
-                let label, icon, description;
-
-                switch (emotion) {
-                    case 'happy':
-                        label = '快乐';
-                        icon = 'fa-grin-beam';
-                        description = '您似乎心情不错！享受这美好的时刻，并记住这种感觉。';
-                        break;
-                    case 'sad':
-                        label = '悲伤';
-                        icon = 'fa-sad-tear';
-                        description = '您似乎感到有些悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。';
-                        break;
-                    case 'angry':
-                        label = '愤怒';
-                        icon = 'fa-angry';
-                        description = '您似乎感到有些愤怒。这是一种正常的情绪，尝试找到健康的方式来表达它。';
-                        break;
-                    case 'anxious':
-                        label = '焦虑';
-                        icon = 'fa-frown';
-                        description = '您似乎感到有些焦虑。深呼吸可能会有所帮助，尝试放松您的身心。';
-                        break;
-                    case 'tired':
-                        label = '疲惫';
-                        icon = 'fa-tired';
-                        description = '您似乎感到有些疲惫。适当的休息对身心健康都很重要。';
-                        break;
+            
+            // 点击其他地方关闭下拉菜单
+            document.addEventListener('click', () => {
+                personaDropdownToggle.classList.remove('active');
+                personaDropdown.classList.remove('active');
+            });
+            
+            // 阻止下拉菜单内部点击事件冒泡
+            personaDropdown.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        }
+        
+        // 人设选项点击事件
+        const personaOptions = document.querySelectorAll('.persona-option');
+        personaOptions.forEach(option => {
+            option.addEventListener('click', () => {
+                const persona = option.dataset.persona;
+                changePersona(persona);
+                
+                // 关闭下拉菜单
+                if (personaDropdownToggle && personaDropdown) {
+                    personaDropdownToggle.classList.remove('active');
+                    personaDropdown.classList.remove('active');
                 }
-
-                updateEmotionDisplay(emotion, label, icon, description);
             });
         });
 
@@ -374,73 +367,174 @@ if (isBrowser) {
 
     // 发送消息
     function sendMessage() {
+        const messageInput = document.getElementById('messageInput');
         const message = messageInput.value.trim();
+        
         if (message === '') return;
-
-        // 添加用户消息到聊天
-        addMessageToChat('user', message);
-
+        
         // 清空输入框
         messageInput.value = '';
-        messageInput.style.height = 'auto';
-
+        
+        // 调整输入框高度
+        autoResizeTextarea();
+        
+        // 添加用户消息到聊天区域
+        addMessageToChat('user', message);
+        
+        // 分析情绪
+        analyzeEmotion(message);
+        
         // 显示"正在输入"状态
         showTypingIndicator();
-
-        // 模拟情绪分析和回复
-        setTimeout(() => {
+        
+        // 获取CSRF令牌
+        let csrfToken = '';
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        if (csrfMeta) {
+            csrfToken = csrfMeta.getAttribute('content');
+        }
+        
+        console.log('发送消息:', message, '情绪:', currentEmotion, '人设:', currentPersona);
+        
+        // 发送消息到后端API
+        fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken
+            },
+            body: JSON.stringify({
+                message: message,
+                emotion: currentEmotion,
+                persona: currentPersona
+            })
+        })
+        .then(response => {
+            console.log('收到响应状态:', response.status);
+            if (!response.ok) {
+                return response.json().then(data => {
+                    throw new Error(data.message || '网络错误');
+                }).catch(e => {
+                    throw new Error('网络错误: ' + response.status);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('收到响应数据:', data);
+            
             // 移除"正在输入"状态
             removeTypingIndicator();
-
-            // 分析情绪（模拟）
-            analyzeEmotion(message);
-
-            // 生成回复（模拟）
-            const reply = generateReply(message);
-            addMessageToChat('assistant', reply);
-
-            // 更新推荐
-            updateRecommendations();
-        }, 1500);
+            
+            if (data.success) {
+                // 添加助手回复到聊天区域
+                addMessageToChat('assistant', data.reply);
+                
+                // 更新情绪显示
+                if (data.emotion) {
+                    updateEmotionDisplay(
+                        data.emotion_type || 'neutral', 
+                        data.emotion || '平静', 
+                        data.emotion_icon || 'fa-smile',
+                        data.emotion_description || '您当前的情绪状态看起来很平静'
+                    );
+                }
+                
+                // 更新推荐
+                if (data.recommendations) {
+                    updateRecommendations(data.recommendations);
+                }
+            } else {
+                // 显示错误消息
+                let errorMessage = '抱歉，我遇到了一些问题，无法回复您的消息。请稍后再试。';
+                if (data.message) {
+                    errorMessage = `抱歉，出现了问题: ${data.message}`;
+                }
+                addMessageToChat('assistant', errorMessage);
+                
+                // 如果用户消息已保存但助手回复保存失败，提示用户刷新页面
+                if (data.user_message_saved) {
+                    setTimeout(() => {
+                        addMessageToChat('assistant', '您的消息已保存，但我的回复保存失败。刷新页面可能会看到完整对话。');
+                    }, 1000);
+                }
+            }
+        })
+        .catch(error => {
+            console.error('发送消息失败:', error);
+            
+            // 移除"正在输入"状态
+            removeTypingIndicator();
+            
+            // 显示错误消息
+            addMessageToChat('assistant', `抱歉，发生了错误: ${error.message || '网络连接问题'}。请检查您的网络连接并稍后再试。`);
+            
+            // 添加重试按钮
+            setTimeout(() => {
+                const retryMessage = document.createElement('div');
+                retryMessage.className = 'message assistant retry-message';
+                retryMessage.innerHTML = `
+                    <div class="message-content">
+                        <p>您可以 <button class="retry-button">重试发送</button> 这条消息。</p>
+                    </div>
+                `;
+                document.getElementById('chatMessages').appendChild(retryMessage);
+                
+                // 添加重试按钮点击事件
+                const retryButton = retryMessage.querySelector('.retry-button');
+                retryButton.addEventListener('click', () => {
+                    // 移除重试消息
+                    retryMessage.remove();
+                    
+                    // 重新发送最后一条消息
+                    messageInput.value = message;
+                    sendMessage();
+                });
+                
+                // 滚动到底部
+                scrollChatToBottom();
+            }, 1000);
+        });
     }
 
     // 添加消息到聊天
-    function addMessageToChat(sender, content) {
+    function addMessageToChat(sender, content, scrollToBottom = true) {
         const chatMessages = document.getElementById('chatMessages');
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}`;
-
+        
         const avatarDiv = document.createElement('div');
         avatarDiv.className = 'message-avatar';
-
+        
         const avatarImg = document.createElement('img');
         if (sender === 'user') {
             // 使用用户头像
             const userAvatar = document.querySelector('.user-avatar img');
             avatarImg.src = userAvatar ? userAvatar.src : 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60';
         } else {
-            // 使用助手头像
-            const personaAvatar = document.querySelector('.persona.active .persona-avatar img');
-            avatarImg.src = personaAvatar ? personaAvatar.src : 'https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60';
+            // 使用助手头像 - 从当前选择的人设获取头像
+            avatarImg.src = document.getElementById('currentPersonaAvatar').src;
         }
         avatarImg.alt = sender === 'user' ? '用户头像' : '助手头像';
-
+        
         avatarDiv.appendChild(avatarImg);
         messageDiv.appendChild(avatarDiv);
-
+        
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
-
+        
         const paragraph = document.createElement('p');
         paragraph.textContent = content;
-
+        
         contentDiv.appendChild(paragraph);
         messageDiv.appendChild(contentDiv);
-
+        
         chatMessages.appendChild(messageDiv);
-
-        // 滚动到底部
-        scrollChatToBottom();
+        
+        // 滚动到底部（如果需要）
+        if (scrollToBottom) {
+            scrollChatToBottom();
+        }
     }
 
     // 滚动聊天区域到底部
@@ -462,7 +556,8 @@ if (isBrowser) {
         avatarElement.classList.add('message-avatar');
 
         const imgElement = document.createElement('img');
-        imgElement.src = document.querySelector(`.persona[data-persona="${currentPersona}"] img`).src;
+        // 使用当前选择的人设头像
+        imgElement.src = document.getElementById('currentPersonaAvatar').src;
         imgElement.alt = '助手头像';
 
         avatarElement.appendChild(imgElement);
@@ -500,7 +595,7 @@ if (isBrowser) {
 
     // 分析情绪（模拟）
     function analyzeEmotion(message) {
-        // 简单的关键词匹配（实际应用中应使用更复杂的NLP）
+        // 扩展的关键词匹配（与后端保持一致）
         let emotionType = 'neutral';
         let emotionLabel = '平静';
         let emotionIcon = 'fa-smile';
@@ -508,32 +603,69 @@ if (isBrowser) {
 
         const lowerMessage = message.toLowerCase();
 
-        if (lowerMessage.includes('难过') || lowerMessage.includes('伤心') || lowerMessage.includes('悲')) {
-            emotionType = 'sad';
-            emotionLabel = '悲伤';
-            emotionIcon = 'fa-sad-tear';
-            emotionDescription = '您似乎感到有些悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。';
-        } else if (lowerMessage.includes('焦虑') || lowerMessage.includes('担心') || lowerMessage.includes('紧张')) {
-            emotionType = 'anxious';
-            emotionLabel = '焦虑';
-            emotionIcon = 'fa-frown';
-            emotionDescription = '您似乎感到有些焦虑。深呼吸可能会有所帮助，尝试放松您的身心。';
-        } else if (lowerMessage.includes('生气') || lowerMessage.includes('愤怒') || lowerMessage.includes('烦')) {
-            emotionType = 'angry';
-            emotionLabel = '愤怒';
-            emotionIcon = 'fa-angry';
-            emotionDescription = '您似乎感到有些愤怒。这是一种正常的情绪，尝试找到健康的方式来表达它。';
-        } else if (lowerMessage.includes('开心') || lowerMessage.includes('高兴') || lowerMessage.includes('快乐')) {
-            emotionType = 'happy';
-            emotionLabel = '快乐';
-            emotionIcon = 'fa-grin-beam';
-            emotionDescription = '您似乎心情不错！享受这美好的时刻，并记住这种感觉。';
-        } else if (lowerMessage.includes('疲惫') || lowerMessage.includes('累') || lowerMessage.includes('困')) {
-            emotionType = 'tired';
-            emotionLabel = '疲惫';
-            emotionIcon = 'fa-tired';
-            emotionDescription = '您似乎感到有些疲惫。适当的休息对身心健康都很重要。';
+        // 情绪类别和关键词映射
+        const emotionKeywords = {
+            'sad': {
+                keywords: ['难过', '伤心', '悲', '哭', '失落', '绝望', '痛苦', '遗憾', '哀伤', '忧郁'],
+                label: '悲伤',
+                icon: 'fa-sad-tear',
+                description: '您似乎感到有些悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。'
+            },
+            'anxious': {
+                keywords: ['焦虑', '担心', '紧张', '害怕', '恐惧', '不安', '慌张', '忧虑', '惊慌', '压力'],
+                label: '焦虑',
+                icon: 'fa-frown',
+                description: '您似乎感到有些焦虑。深呼吸可能会有所帮助，尝试放松您的身心。'
+            },
+            'angry': {
+                keywords: ['生气', '愤怒', '烦', '恼火', '暴躁', '恨', '不满', '怒火', '气愤', '厌烦'],
+                label: '愤怒',
+                icon: 'fa-angry',
+                description: '您似乎感到有些愤怒。这是一种正常的情绪，尝试找到健康的方式来表达它。'
+            },
+            'happy': {
+                keywords: ['开心', '高兴', '快乐', '喜悦', '兴奋', '愉快', '欣喜', '满足', '幸福', '欢乐'],
+                label: '快乐',
+                icon: 'fa-grin-beam',
+                description: '您似乎心情不错！享受这美好的时刻，并记住这种感觉。'
+            },
+            'tired': {
+                keywords: ['疲惫', '累', '困', '倦怠', '精疲力竭', '没精神', '疲乏', '疲劳', '困倦', '乏力'],
+                label: '疲惫',
+                icon: 'fa-tired',
+                description: '您似乎感到有些疲惫。适当的休息对身心健康都很重要。'
+            },
+            'neutral': {
+                keywords: ['平静', '安宁', '放松', '舒适', '安心', '宁静', '祥和', '镇定', '安详', '平和'],
+                label: '平静',
+                icon: 'fa-smile',
+                description: '您当前的情绪状态看起来很平静'
+            }
+        };
+
+        // 计算每种情绪的匹配度
+        let bestMatchCount = 0;
+        let bestMatchType = 'neutral';
+
+        for (const [type, data] of Object.entries(emotionKeywords)) {
+            const matchCount = data.keywords.filter(keyword => lowerMessage.includes(keyword)).length;
+            if (matchCount > bestMatchCount) {
+                bestMatchCount = matchCount;
+                bestMatchType = type;
+            }
         }
+
+        // 如果找到匹配的情绪
+        if (bestMatchCount > 0) {
+            const matchedEmotion = emotionKeywords[bestMatchType];
+            emotionType = bestMatchType;
+            emotionLabel = matchedEmotion.label;
+            emotionIcon = matchedEmotion.icon;
+            emotionDescription = matchedEmotion.description;
+        }
+
+        // 更新全局情绪状态
+        currentEmotion = emotionLabel;
 
         // 只有当检测到情绪关键词时才更新显示
         if (emotionType !== 'neutral' || currentEmotion === 'neutral') {
@@ -544,21 +676,14 @@ if (isBrowser) {
     // 更新情绪显示
     function updateEmotionDisplay(emotionType, emotionLabel, emotionIcon, emotionDescription) {
         // 更新当前情绪
-        currentEmotion = emotionType;
+        currentEmotion = emotionLabel;
 
         // 更新情绪图标和标签
         document.querySelector('.emotion-icon i').className = `fas ${emotionIcon}`;
         document.querySelector('.emotion-label').textContent = emotionLabel;
         document.querySelector('.emotion-description').textContent = emotionDescription;
 
-        // 更新情绪类型的激活状态
-        document.querySelectorAll('.emotion-type').forEach(type => {
-            if (type.dataset.emotion === emotionType) {
-                type.classList.add('active');
-            } else {
-                type.classList.remove('active');
-            }
-        });
+        // 不再需要更新情绪类型的激活状态，因为情绪类型元素已被移除
     }
 
     // 生成回复（模拟）
@@ -593,19 +718,71 @@ if (isBrowser) {
     // 更改人设
     function changePersona(persona) {
         currentPersona = persona;
+        
+        // 保存用户选择的人设到服务器
+        if (isLoggedIn) {
+            saveUserPersona(persona);
+        }
 
-        // 更新UI
-        personaElements.forEach(el => {
-            if (el.dataset.persona === persona) {
-                el.classList.add('active');
-            } else {
-                el.classList.remove('active');
-            }
-        });
+        // 更新当前显示的人设
+        updateCurrentPersonaDisplay(persona);
 
         // 添加系统消息
-        const personaName = document.querySelector(`.persona[data-persona="${persona}"] h3`).textContent;
+        const personaName = document.querySelector(`.persona-option[data-persona="${persona}"] h3`).textContent;
         addMessageToChat('assistant', `已切换到${personaName}。我将以这种风格继续我们的对话。`);
+        
+        // 更新所有助手消息的头像
+        updateAssistantAvatars();
+    }
+
+    // 更新所有助手消息的头像
+    function updateAssistantAvatars() {
+        const assistantMessages = document.querySelectorAll('.message.assistant .message-avatar img');
+        const currentAvatar = document.getElementById('currentPersonaAvatar').src;
+        
+        assistantMessages.forEach(avatar => {
+            avatar.src = currentAvatar;
+        });
+    }
+
+    // 更新当前显示的人设
+    function updateCurrentPersonaDisplay(persona) {
+        const option = document.querySelector(`.persona-option[data-persona="${persona}"]`);
+        if (!option) return;
+        
+        const avatar = option.querySelector('.persona-avatar img').src;
+        const name = option.querySelector('h3').textContent;
+        const desc = option.querySelector('p').textContent;
+        
+        // 更新当前人设显示
+        document.getElementById('currentPersonaAvatar').src = avatar;
+        document.getElementById('currentPersonaName').textContent = name;
+        document.getElementById('currentPersonaDesc').textContent = desc;
+    }
+
+    // 保存用户选择的人设到服务器
+    function saveUserPersona(persona) {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        
+        fetch('/api/save-persona', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken
+            },
+            body: JSON.stringify({ persona: persona })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('人设保存成功');
+            } else {
+                console.error('人设保存失败:', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('人设保存请求失败:', error);
+        });
     }
 
     // 加载推荐
@@ -623,9 +800,13 @@ if (isBrowser) {
     }
 
     // 更新推荐
-    function updateRecommendations() {
-        // 简单实现：随机更新推荐
-        loadRecommendations();
+    function updateRecommendations(recommendations) {
+        recommendationCards.innerHTML = '';
+
+        recommendations.forEach(product => {
+            const card = createProductCard(product);
+            recommendationCards.appendChild(card);
+        });
     }
 
     // 创建产品卡片
@@ -699,7 +880,55 @@ if (isBrowser) {
         title.textContent = product.name;
 
         const description = document.createElement('p');
-        description.textContent = product.fullDescription || product.description;
+        description.textContent = product.full_description || product.description;
+
+        // 创建情绪效果部分
+        const emotionEffectsTitle = document.createElement('h4');
+        emotionEffectsTitle.textContent = '情绪效果:';
+        
+        const emotionEffects = document.createElement('div');
+        emotionEffects.classList.add('emotion-effects');
+        
+        // 为每种情绪创建效果说明
+        const emotionEffectMap = {
+            '快乐': '增强愉悦感，提升积极情绪，帮助保持乐观心态',
+            '悲伤': '舒缓心情，减轻忧郁感，带来温暖和安慰',
+            '愤怒': '平复情绪，缓解紧张，帮助恢复平静',
+            '焦虑': '减轻压力，舒缓神经，促进放松和安宁',
+            '疲惫': '提振精神，恢复活力，改善注意力和集中力',
+            '平静': '维持内心平衡，促进冥想和专注'
+        };
+        
+        // 添加当前情绪的效果说明
+        if (product.emotions && product.emotions.length > 0) {
+            product.emotions.forEach(emotion => {
+                const effectItem = document.createElement('div');
+                effectItem.classList.add('effect-item');
+                
+                const emotionName = document.createElement('span');
+                emotionName.classList.add('emotion-name');
+                emotionName.textContent = emotion + ': ';
+                
+                const effectDesc = document.createElement('span');
+                effectDesc.classList.add('effect-desc');
+                effectDesc.textContent = emotionEffectMap[emotion] || '帮助调节情绪，促进身心健康';
+                
+                effectItem.appendChild(emotionName);
+                effectItem.appendChild(effectDesc);
+                emotionEffects.appendChild(effectItem);
+                
+                // 如果是当前情绪，添加高亮
+                if (emotion === currentEmotion) {
+                    effectItem.classList.add('current-emotion');
+                    
+                    // 添加推荐理由
+                    const recommendReason = document.createElement('div');
+                    recommendReason.classList.add('recommend-reason');
+                    recommendReason.innerHTML = `<i class="fas fa-star"></i> 推荐理由: 这款香薰特别适合您当前的<strong>${currentEmotion}</strong>情绪状态，可以${emotionEffectMap[emotion] ? emotionEffectMap[emotion].split('，')[0].toLowerCase() : '帮助调节情绪'}。`;
+                    emotionEffects.appendChild(recommendReason);
+                }
+            });
+        }
 
         const emotionsTitle = document.createElement('h4');
         emotionsTitle.textContent = '适用情绪:';
@@ -711,13 +940,29 @@ if (isBrowser) {
             const emotionTag = document.createElement('span');
             emotionTag.classList.add('product-emotion');
             emotionTag.textContent = emotion;
+            // 如果是当前情绪，添加高亮
+            if (emotion === currentEmotion) {
+                emotionTag.classList.add('current-emotion');
+            }
             emotions.appendChild(emotionTag);
         });
 
+        // 添加使用方法
+        const usageTitle = document.createElement('h4');
+        usageTitle.textContent = '使用方法:';
+        
+        const usage = document.createElement('p');
+        usage.classList.add('product-usage');
+        usage.textContent = '将香薰精油滴入扩香器中，或加入热水中蒸发，让香气弥漫在空间中。也可以滴在手帕上随身携带，需要时轻轻闻嗅。';
+
         productInfo.appendChild(title);
         productInfo.appendChild(description);
+        productInfo.appendChild(emotionEffectsTitle);
+        productInfo.appendChild(emotionEffects);
         productInfo.appendChild(emotionsTitle);
         productInfo.appendChild(emotions);
+        productInfo.appendChild(usageTitle);
+        productInfo.appendChild(usage);
 
         productDetails.appendChild(productImage);
         productDetails.appendChild(productInfo);
@@ -769,17 +1014,88 @@ if (isBrowser) {
             }
             
             @keyframes typingAnimation {
-                0%, 80%, 100% { 
+                0%, 80%, 100% {
                     transform: scale(0.6);
                     opacity: 0.6;
                 }
-                40% { 
+                40% {
                     transform: scale(1);
                     opacity: 1;
                 }
             }
+            
+            /* 重试按钮样式 */
+            .retry-message {
+                margin-top: 8px;
+            }
+            
+            .retry-button {
+                background-color: var(--primary-color);
+                color: white;
+                border: none;
+                padding: 4px 8px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+                transition: background-color 0.3s;
+            }
+            
+            .retry-button:hover {
+                background-color: var(--primary-dark);
+            }
+            
+            /* 产品详情增强样式 */
+            .emotion-effects {
+                margin-bottom: 15px;
+            }
+            
+            .effect-item {
+                margin-bottom: 8px;
+                padding: 8px;
+                border-radius: 6px;
+                background-color: rgba(var(--primary-rgb), 0.05);
+            }
+            
+            .effect-item.current-emotion {
+                background-color: rgba(var(--primary-rgb), 0.15);
+                border-left: 3px solid var(--primary-color);
+            }
+            
+            .emotion-name {
+                font-weight: bold;
+                color: var(--primary-color);
+            }
+            
+            .effect-desc {
+                color: var(--text-color);
+            }
+            
+            .recommend-reason {
+                margin-top: 10px;
+                padding: 8px;
+                background-color: rgba(var(--accent-rgb), 0.1);
+                border-radius: 6px;
+                font-style: italic;
+            }
+            
+            .recommend-reason i {
+                color: var(--accent-color);
+                margin-right: 5px;
+            }
+            
+            .product-emotion.current-emotion {
+                background-color: var(--primary-color);
+                color: white;
+            }
+            
+            .product-usage {
+                line-height: 1.5;
+                color: var(--text-color);
+                background-color: rgba(var(--primary-rgb), 0.05);
+                padding: 10px;
+                border-radius: 6px;
+            }
         `;
-
         document.head.appendChild(style);
     }
 
@@ -895,36 +1211,46 @@ if (isBrowser) {
             document.getElementById('authButton').style.display = 'none';
             const userProfile = document.getElementById('userProfile');
             userProfile.style.display = 'flex';
-
+            
             // 更新用户信息
             document.querySelector('.user-name').textContent = currentUser.username;
             document.querySelector('.user-email').textContent = currentUser.email;
-
+            
             // 更新用户头像
             const avatarImg = document.querySelector('.user-avatar img');
             if (avatarImg && currentUser.avatar) {
+                // 添加错误处理，如果头像加载失败，使用备用头像
+                avatarImg.onerror = function() {
+                    console.log('头像加载失败，使用备用头像');
+                    this.src = '/static/img/default_avatar.png';
+                };
                 avatarImg.src = currentUser.avatar + '?t=' + new Date().getTime();
             }
-
+            
             // 更新个人资料表单
             document.getElementById('profileUsername').value = currentUser.username;
             document.getElementById('profileEmail').value = currentUser.email;
-
+            
             // 更新个人资料头像
             const profileAvatar = document.querySelector('.profile-avatar img');
             if (profileAvatar && currentUser.avatar) {
+                // 添加错误处理，如果头像加载失败，使用备用头像
+                profileAvatar.onerror = function() {
+                    console.log('个人资料头像加载失败，使用备用头像');
+                    this.src = '/static/img/default_avatar.png';
+                };
                 profileAvatar.src = currentUser.avatar + '?t=' + new Date().getTime();
             }
-
+            
             // 重置情绪和香薰偏好复选框
             document.querySelectorAll('.emotion-preference input[type="checkbox"]').forEach(checkbox => {
                 checkbox.checked = false;
             });
-
+            
             document.querySelectorAll('.aroma-preference input[type="checkbox"]').forEach(checkbox => {
                 checkbox.checked = false;
             });
-
+            
             // 设置用户偏好
             if (currentUser.preferences && currentUser.preferences.emotions) {
                 currentUser.preferences.emotions.forEach(emotion => {
@@ -932,41 +1258,167 @@ if (isBrowser) {
                     if (checkbox) checkbox.checked = true;
                 });
             }
-
+            
             if (currentUser.preferences && currentUser.preferences.aromas) {
                 currentUser.preferences.aromas.forEach(aroma => {
                     const checkbox = document.getElementById(`aroma${capitalizeFirstLetter(aroma)}`);
                     if (checkbox) checkbox.checked = true;
                 });
             }
-
+            
             // 直接绑定用户菜单交互事件
-            setTimeout(function () {
+            setTimeout(function() {
                 // 为用户菜单切换按钮添加点击事件
                 const userMenuToggle = document.querySelector('.user-menu-toggle');
                 const userMenu = document.querySelector('.user-menu');
-
+                
                 if (userMenuToggle && userMenu) {
                     // 移除已有的事件监听器
                     userMenuToggle.removeEventListener('click', toggleUserMenu);
-
+                    
                     // 添加新的事件监听器
                     userMenuToggle.addEventListener('click', toggleUserMenu);
-
+                    
                     // 为菜单项添加点击事件
                     const menuItems = userMenu.querySelectorAll('li');
                     menuItems.forEach((item, index) => {
                         // 移除已有的事件监听器
                         item.removeEventListener('click', handleMenuItemClick);
-
+                        
                         // 添加新的事件监听器，使用闭包保存index
-                        item.addEventListener('click', function (e) {
+                        item.addEventListener('click', function(e) {
                             handleMenuItemClick(e, index);
                         });
                     });
                 }
             }, 100);
+            
+            // 加载用户的人设偏好
+            loadUserPersona();
+            
+            // 加载聊天历史
+            loadChatHistory();
         }
+    }
+    
+    // 加载用户的人设偏好
+    function loadUserPersona() {
+        fetch('/api/get-persona')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.persona) {
+                    console.log('加载用户人设:', data.persona);
+                    changePersona(data.persona);
+                } else {
+                    console.log('没有保存的人设或加载失败，使用默认人设');
+                    updateCurrentPersonaDisplay(currentPersona);
+                }
+            })
+            .catch(error => {
+                console.error('加载用户人设失败:', error);
+                updateCurrentPersonaDisplay(currentPersona);
+            });
+    }
+    
+    // 加载聊天历史
+    function loadChatHistory() {
+        // 清空聊天区域
+        const chatMessages = document.getElementById('chatMessages');
+        chatMessages.innerHTML = '';
+        
+        // 从后端API获取聊天历史
+        fetch('/api/chat-history')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('获取聊天历史失败');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success && data.messages && data.messages.length > 0) {
+                    console.log('加载聊天历史:', data.messages.length, '条消息');
+                    
+                    // 按时间顺序排序消息（从旧到新）
+                    const sortedMessages = data.messages.sort((a, b) => {
+                        return new Date(a.timestamp) - new Date(b.timestamp);
+                    });
+                    
+                    // 添加消息到聊天区域
+                    sortedMessages.forEach(msg => {
+                        const sender = msg.is_user ? 'user' : 'assistant';
+                        addMessageToChat(sender, msg.content, false); // 不滚动到底部
+                    });
+                    
+                    // 更新所有助手消息的头像
+                    updateAssistantAvatars();
+                    
+                    // 最后滚动到底部
+                    scrollChatToBottom();
+                    
+                    // 如果有消息，更新情绪显示
+                    if (sortedMessages.length > 0) {
+                        const lastMessage = sortedMessages[sortedMessages.length - 1];
+                        if (!lastMessage.is_user && lastMessage.emotion) {
+                            updateEmotionDisplayFromHistory(lastMessage.emotion);
+                        }
+                        
+                        // 如果最后一条消息有人设信息，更新当前人设
+                        if (!lastMessage.is_user && lastMessage.persona && lastMessage.persona !== currentPersona) {
+                            changePersona(lastMessage.persona);
+                        }
+                    }
+                } else {
+                    console.log('没有聊天历史或加载失败');
+                    // 添加欢迎消息
+                    addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
+                }
+            })
+            .catch(error => {
+                console.error('加载聊天历史错误:', error);
+                // 添加欢迎消息
+                addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
+            });
+    }
+    
+    // 从历史记录更新情绪显示
+    function updateEmotionDisplayFromHistory(emotion) {
+        let emotionType, emotionLabel, emotionIcon, emotionDescription;
+        
+        switch (emotion) {
+            case '快乐':
+                emotionType = 'happy';
+                emotionIcon = 'fa-grin-beam';
+                emotionDescription = '您似乎心情不错！享受这美好的时刻，并记住这种感觉。';
+                break;
+            case '悲伤':
+                emotionType = 'sad';
+                emotionIcon = 'fa-sad-tear';
+                emotionDescription = '您似乎感到有些悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。';
+                break;
+            case '愤怒':
+                emotionType = 'angry';
+                emotionIcon = 'fa-angry';
+                emotionDescription = '您似乎感到有些愤怒。这是一种正常的情绪反应，尝试深呼吸可能会有所帮助。';
+                break;
+            case '焦虑':
+                emotionType = 'anxious';
+                emotionIcon = 'fa-frown-open';
+                emotionDescription = '您似乎感到有些焦虑。这是一种常见的感受，尝试专注于当下可能会有所帮助。';
+                break;
+            case '疲惫':
+                emotionType = 'tired';
+                emotionIcon = 'fa-tired';
+                emotionDescription = '您似乎感到有些疲惫。给自己一些休息的时间是很重要的。';
+                break;
+            default:
+                emotionType = 'neutral';
+                emotionIcon = 'fa-meh';
+                emotionDescription = '您的情绪似乎比较平静。';
+        }
+        
+        emotionLabel = emotion;
+        
+        updateEmotionDisplay(emotionType, emotionLabel, emotionIcon, emotionDescription);
     }
 
     // 切换用户菜单显示/隐藏

@@ -382,41 +382,55 @@
             
             <div class="persona-selector">
                 <h2>选择人设</h2>
-                <div class="personas">
-                    <div class="persona active" data-persona="empathetic">
+                <div class="current-persona-container">
+                    <div class="current-persona" id="currentPersona">
                         <div class="persona-avatar">
-                            <img src="https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="共情型助手">
+                            <img src="https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="共情型助手" id="currentPersonaAvatar">
                         </div>
                         <div class="persona-info">
-                            <h3>共情型助手</h3>
-                            <p>温暖理解，感同身受</p>
+                            <h3 id="currentPersonaName">共情型助手</h3>
+                            <p id="currentPersonaDesc">温暖理解，感同身受</p>
+                        </div>
+                        <div class="persona-dropdown-toggle">
+                            <i class="fas fa-chevron-down"></i>
                         </div>
                     </div>
-                    <div class="persona" data-persona="motivational">
-                        <div class="persona-avatar">
-                            <img src="https://images.unsplash.com/photo-1580489944761-15a19d654956?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="激励型助手">
+                    <div class="persona-dropdown" id="personaDropdown">
+                        <div class="persona-option" data-persona="empathetic">
+                            <div class="persona-avatar">
+                                <img src="https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="共情型助手">
+                            </div>
+                            <div class="persona-info">
+                                <h3>共情型助手</h3>
+                                <p>温暖理解，感同身受</p>
+                            </div>
                         </div>
-                        <div class="persona-info">
-                            <h3>激励型助手</h3>
-                            <p>积极向上，鼓舞人心</p>
+                        <div class="persona-option" data-persona="motivational">
+                            <div class="persona-avatar">
+                                <img src="https://images.unsplash.com/photo-1580489944761-15a19d654956?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="激励型助手">
+                            </div>
+                            <div class="persona-info">
+                                <h3>激励型助手</h3>
+                                <p>积极向上，鼓舞人心</p>
+                            </div>
                         </div>
-                    </div>
-                    <div class="persona" data-persona="analytical">
-                        <div class="persona-avatar">
-                            <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="分析型助手">
+                        <div class="persona-option" data-persona="analytical">
+                            <div class="persona-avatar">
+                                <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="分析型助手">
+                            </div>
+                            <div class="persona-info">
+                                <h3>分析型助手</h3>
+                                <p>理性分析，提供见解</p>
+                            </div>
                         </div>
-                        <div class="persona-info">
-                            <h3>分析型助手</h3>
-                            <p>理性分析，提供见解</p>
-                        </div>
-                    </div>
-                    <div class="persona" data-persona="mindful">
-                        <div class="persona-avatar">
-                            <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="正念型助手">
-                        </div>
-                        <div class="persona-info">
-                            <h3>正念型助手</h3>
-                            <p>专注当下，平静心灵</p>
+                        <div class="persona-option" data-persona="mindful">
+                            <div class="persona-avatar">
+                                <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="正念型助手">
+                            </div>
+                            <div class="persona-info">
+                                <h3>正念型助手</h3>
+                                <p>专注当下，平静心灵</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -429,28 +443,6 @@
                     </div>
                     <div class="emotion-label">平静</div>
                     <div class="emotion-description">您当前的情绪状态看起来很平静</div>
-                </div>
-                <div class="emotion-types">
-                    <div class="emotion-type" data-emotion="happy">
-                        <i class="fas fa-grin-beam"></i>
-                        <span>快乐</span>
-                    </div>
-                    <div class="emotion-type" data-emotion="sad">
-                        <i class="fas fa-sad-tear"></i>
-                        <span>悲伤</span>
-                    </div>
-                    <div class="emotion-type" data-emotion="angry">
-                        <i class="fas fa-angry"></i>
-                        <span>愤怒</span>
-                    </div>
-                    <div class="emotion-type" data-emotion="anxious">
-                        <i class="fas fa-frown"></i>
-                        <span>焦虑</span>
-                    </div>
-                    <div class="emotion-type" data-emotion="tired">
-                        <i class="fas fa-tired"></i>
-                        <span>疲惫</span>
-                    </div>
                 </div>
             </div>
         </aside>

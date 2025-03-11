@@ -2,105 +2,235 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app import db, csrf
 from app.models import User, ChatMessage, EmotionRecord, AromaProduct, product_emotions
+from app.utils.spark_api import get_spark_client
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 from werkzeug.utils import secure_filename
 
 api_bp = Blueprint('api', __name__)
 
+# 为聊天API豁免CSRF保护
+@csrf.exempt
 @api_bp.route('/chat', methods=['POST'])
 @login_required
 def chat():
     """处理聊天消息"""
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({'success': False, 'message': '无效的请求数据'}), 400
-    
-    message = data.get('message', '')
-    persona = data.get('persona', 'empathetic')
-    
-    if not message:
-        return jsonify({'success': False, 'message': '消息不能为空'}), 400
-    
-    # 分析情绪（简单实现，实际应用中应使用NLP）
-    emotion, emotion_score = analyze_emotion(message)
-    
-    # 保存用户消息
-    user_message = ChatMessage(
-        user_id=current_user.id,
-        content=message,
-        is_user=True,
-        emotion=emotion,
-        emotion_score=emotion_score,
-        persona=persona
-    )
-    db.session.add(user_message)
-    
-    # 记录情绪
-    emotion_record = EmotionRecord(
-        user_id=current_user.id,
-        emotion=emotion,
-        score=emotion_score
-    )
-    db.session.add(emotion_record)
-    
-    # 生成回复
-    reply = generate_reply(message, emotion, persona)
-    
-    # 保存助手回复
-    assistant_message = ChatMessage(
-        user_id=current_user.id,
-        content=reply,
-        is_user=False,
-        emotion=emotion,
-        emotion_score=emotion_score,
-        persona=persona
-    )
-    db.session.add(assistant_message)
-    
-    db.session.commit()
-    
-    # 获取推荐的香薰产品
-    recommended_products = recommend_products(emotion)
-    
-    return jsonify({
-        'success': True,
-        'reply': reply,
-        'emotion': {
-            'label': emotion,
-            'score': emotion_score
-        },
-        'recommendations': [product.to_dict() for product in recommended_products]
-    })
+    try:
+        data = request.get_json()
+        
+        if not data:
+            current_app.logger.error("无效的请求数据: %s", request.data)
+            return jsonify({'success': False, 'message': '无效的请求数据'}), 400
+        
+        message = data.get('message', '')
+        persona = data.get('persona', 'empathetic')
+        
+        current_app.logger.info("收到聊天消息: %s, 人设: %s", message, persona)
+        
+        if not message:
+            return jsonify({'success': False, 'message': '消息不能为空'}), 400
+        
+        # 分析情绪（简单实现，实际应用中应使用NLP）
+        emotion, emotion_score = analyze_emotion(message)
+        current_app.logger.info("情绪分析结果: %s, 分数: %s", emotion, emotion_score)
+        
+        try:
+            # 保存用户消息
+            user_message = ChatMessage(
+                user_id=current_user.id,
+                content=message,
+                is_user=True,
+                emotion=emotion,
+                emotion_score=emotion_score,
+                persona=persona
+            )
+            db.session.add(user_message)
+            
+            # 记录情绪
+            emotion_record = EmotionRecord(
+                user_id=current_user.id,
+                emotion=emotion,
+                score=emotion_score
+            )
+            db.session.add(emotion_record)
+            
+            # 提交数据库事务，保存用户消息和情绪记录
+            db.session.commit()
+            current_app.logger.info("用户消息和情绪记录已保存")
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error("保存用户消息失败: %s", str(e), exc_info=True)
+            return jsonify({'success': False, 'message': '保存消息失败'}), 500
+        
+        try:
+            # 使用讯飞星火API生成回复
+            reply = generate_reply_with_spark(message, emotion, persona)
+            current_app.logger.info("生成回复: %s", reply)
+            
+            # 保存助手回复
+            assistant_message = ChatMessage(
+                user_id=current_user.id,
+                content=reply,
+                is_user=False,
+                emotion=emotion,
+                emotion_score=emotion_score,
+                persona=persona
+            )
+            db.session.add(assistant_message)
+            
+            # 提交数据库事务，保存助手回复
+            db.session.commit()
+            current_app.logger.info("助手回复已保存")
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error("保存助手回复失败: %s", str(e), exc_info=True)
+            return jsonify({
+                'success': False, 
+                'message': '保存回复失败',
+                'user_message_saved': True  # 表示用户消息已保存
+            }), 500
+        
+        try:
+            # 获取推荐的香薰产品
+            recommended_products = recommend_products(emotion, current_user.id)
+            
+            # 构建响应
+            response = {
+                'success': True,
+                'reply': reply,
+                'emotion': emotion,
+                'emotion_score': emotion_score,
+                'emotion_type': get_emotion_type(emotion),
+                'emotion_icon': get_emotion_icon(emotion),
+                'emotion_description': get_emotion_description(emotion),
+                'recommendations': [product.to_dict() for product in recommended_products]
+            }
+            
+            return jsonify(response)
+        except Exception as e:
+            current_app.logger.error("构建响应失败: %s", str(e), exc_info=True)
+            return jsonify({
+                'success': True,
+                'reply': reply,
+                'emotion': emotion,
+                'emotion_score': emotion_score
+            })
+    except Exception as e:
+        current_app.logger.error("处理聊天消息失败: %s", str(e), exc_info=True)
+        return jsonify({'success': False, 'message': '处理消息失败'}), 500
 
 @api_bp.route('/chat-history', methods=['GET'])
 @login_required
-def chat_history():
+def get_chat_history():
     """获取用户的聊天历史"""
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
-    
-    messages = ChatMessage.query.filter_by(user_id=current_user.id).order_by(
-        ChatMessage.timestamp.desc()
-    ).paginate(page=page, per_page=per_page)
-    
-    return jsonify({
-        'success': True,
-        'messages': [{
-            'id': msg.id,
-            'content': msg.content,
-            'is_user': msg.is_user,
-            'emotion': msg.emotion,
-            'emotion_score': msg.emotion_score,
-            'persona': msg.persona,
-            'timestamp': msg.timestamp.isoformat()
-        } for msg in messages.items],
-        'total': messages.total,
-        'pages': messages.pages,
-        'current_page': messages.page
-    })
+    try:
+        # 获取当前用户的聊天历史
+        messages = ChatMessage.query.filter_by(user_id=current_user.id).order_by(ChatMessage.timestamp).all()
+        
+        # 转换为JSON格式
+        messages_json = []
+        for msg in messages:
+            messages_json.append({
+                'id': msg.id,
+                'content': msg.content,
+                'is_user': msg.is_user,
+                'timestamp': msg.timestamp.isoformat(),
+                'emotion': msg.emotion,
+                'persona': msg.persona,
+            })
+        
+        return jsonify({
+            'success': True,
+            'messages': messages_json
+        })
+    except Exception as e:
+        current_app.logger.error("获取聊天历史失败: %s", str(e), exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '获取聊天历史失败'
+        }), 500
+
+@api_bp.route('/save-persona', methods=['POST'])
+@login_required
+def save_persona():
+    """保存用户选择的人设"""
+    try:
+        data = request.json
+        persona = data.get('persona')
+        
+        if not persona:
+            return jsonify({
+                'success': False,
+                'message': '人设参数缺失'
+            }), 400
+        
+        # 检查人设是否有效
+        valid_personas = ['empathetic', 'motivational', 'analytical', 'mindful']
+        if persona not in valid_personas:
+            return jsonify({
+                'success': False,
+                'message': '无效的人设'
+            }), 400
+        
+        # 更新用户的人设偏好
+        user = User.query.get(current_user.id)
+        if not user:
+            return jsonify({
+                'success': False,
+                'message': '用户不存在'
+            }), 404
+        
+        # 如果用户没有偏好设置，创建一个
+        if not user.preferences:
+            user.preferences = {}
+        
+        # 更新人设偏好
+        preferences = user.preferences
+        preferences['persona'] = persona
+        user.preferences = preferences
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': '人设保存成功'
+        })
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error("保存人设失败: %s", str(e), exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '保存人设失败'
+        }), 500
+
+@api_bp.route('/get-persona', methods=['GET'])
+@login_required
+def get_persona():
+    """获取用户保存的人设"""
+    try:
+        user = User.query.get(current_user.id)
+        if not user:
+            return jsonify({
+                'success': False,
+                'message': '用户不存在'
+            }), 404
+        
+        # 获取用户的人设偏好
+        persona = None
+        if user.preferences and 'persona' in user.preferences:
+            persona = user.preferences['persona']
+        
+        return jsonify({
+            'success': True,
+            'persona': persona
+        })
+    except Exception as e:
+        current_app.logger.error("获取人设失败: %s", str(e), exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '获取人设失败'
+        }), 500
 
 @api_bp.route('/products', methods=['GET'])
 def products():
@@ -278,21 +408,44 @@ def update_avatar():
 
 def analyze_emotion(message):
     """分析情绪（简单实现，实际应用中应使用NLP）"""
-    # 简单的关键词匹配
+    # 扩展的情绪关键词匹配
     message = message.lower()
     
-    if any(word in message for word in ['难过', '伤心', '悲']):
-        return '悲伤', 30
-    elif any(word in message for word in ['焦虑', '担心', '紧张']):
-        return '焦虑', 40
-    elif any(word in message for word in ['生气', '愤怒', '烦']):
-        return '愤怒', 35
-    elif any(word in message for word in ['开心', '高兴', '快乐']):
-        return '快乐', 85
-    elif any(word in message for word in ['疲惫', '累', '困']):
-        return '疲惫', 45
-    else:
-        return '平静', 60
+    # 情绪类别和关键词映射
+    emotion_keywords = {
+        '悲伤': ['难过', '伤心', '悲', '哭', '失落', '绝望', '痛苦', '遗憾', '哀伤', '忧郁'],
+        '焦虑': ['焦虑', '担心', '紧张', '害怕', '恐惧', '不安', '慌张', '忧虑', '惊慌', '压力'],
+        '愤怒': ['生气', '愤怒', '烦', '恼火', '暴躁', '恨', '不满', '怒火', '气愤', '厌烦'],
+        '快乐': ['开心', '高兴', '快乐', '喜悦', '兴奋', '愉快', '欣喜', '满足', '幸福', '欢乐'],
+        '疲惫': ['疲惫', '累', '困', '倦怠', '精疲力竭', '没精神', '疲乏', '疲劳', '困倦', '乏力'],
+        '平静': ['平静', '安宁', '放松', '舒适', '安心', '宁静', '祥和', '镇定', '安详', '平和']
+    }
+    
+    # 情绪强度基准分数
+    base_scores = {
+        '悲伤': 30,
+        '焦虑': 40,
+        '愤怒': 35,
+        '快乐': 85,
+        '疲惫': 45,
+        '平静': 60
+    }
+    
+    # 计算每种情绪的匹配度
+    emotion_matches = {}
+    for emotion, keywords in emotion_keywords.items():
+        match_count = sum(1 for keyword in keywords if keyword in message)
+        if match_count > 0:
+            # 计算情绪强度分数 (基础分数 + 匹配关键词数量的影响)
+            emotion_matches[emotion] = base_scores[emotion] + (match_count * 5)
+    
+    # 如果没有匹配到任何情绪关键词，返回平静
+    if not emotion_matches:
+        return '平静', base_scores['平静']
+    
+    # 找出匹配度最高的情绪
+    dominant_emotion = max(emotion_matches.items(), key=lambda x: x[1])
+    return dominant_emotion[0], dominant_emotion[1]
 
 def generate_reply(message, emotion, persona):
     """生成回复（简单实现，实际应用中应使用NLP或LLM）"""
@@ -323,15 +476,252 @@ def generate_reply(message, emotion, persona):
     else:
         return '我理解你的感受。请继续分享你的想法，我在这里倾听和支持你。'
 
-def recommend_products(emotion):
-    """根据情绪推荐香薰产品"""
-    # 查询与该情绪相关的产品
-    products = AromaProduct.query.join(
-        product_emotions
-    ).filter(product_emotions.c.emotion == emotion).limit(3).all()
-    
-    # 如果没有找到相关产品，返回随机产品
-    if not products:
-        products = AromaProduct.query.order_by(db.func.random()).limit(3).all()
-    
-    return products 
+def generate_reply_with_spark(message, emotion, persona):
+    """使用讯飞星火API生成回复"""
+    try:
+        # 获取SparkAPI客户端
+        spark_client = get_spark_client()
+        if not spark_client:
+            current_app.logger.error("无法获取SparkAPI客户端")
+            return generate_reply(message, emotion, persona)
+        
+        # 构建消息上下文
+        messages = []
+        
+        # 添加系统提示
+        messages.append({
+            "role": "system", 
+            "content": "你是一名资深的心理愈疗师，专注于情感分析和香薰疗法。你的目标是：\n1. 深入理解用户的情绪状态，不仅是当前对话中表达的，还包括潜在的情绪变化和模式\n2. 建立用户的情绪档案，记住他们的情绪偏好、触发因素和应对方式\n3. 提供个性化的香薰产品推荐，解释为什么特定产品适合用户当前的情绪状态\n4. 通过多轮对话逐渐深入了解用户，建立信任关系\n5. 主动引导对话，但保持自然和共情\n\n在每次回复中，你应该：\n- 首先确认和验证用户的情绪状态\n- 提供情感支持和理解\n- 适时推荐香薰产品，解释其效果和适用情境\n- 提出开放性问题，鼓励用户继续分享\n- 记住用户之前提到的情绪和偏好，在后续对话中引用"
+        })
+        
+        # 添加情绪信息
+        emotion_prompt = f"用户当前情绪: {emotion}"
+        messages.append({"role": "system", "content": emotion_prompt})
+        
+        # 添加人设信息
+        persona_descriptions = {
+            "empathetic": "你是一位非常有同理心的心理愈疗师，善于理解和共情用户的情感体验。",
+            "analytical": "你是一位擅长分析的心理愈疗师，善于帮助用户理性分析情绪和问题。",
+            "motivational": "你是一位非常积极向上的心理愈疗师，善于激励用户，帮助他们找到前进的动力。",
+            "mindful": "你是一位专注正念的心理愈疗师，善于引导用户关注当下，接纳自己的情绪。"
+        }
+        
+        if persona in persona_descriptions:
+            messages.append({"role": "system", "content": persona_descriptions[persona]})
+        
+        # 添加最近的对话历史（最多5轮）
+        try:
+            if current_user and current_user.is_authenticated:
+                # 获取最近的10条消息（5轮对话）
+                recent_messages = ChatMessage.query.filter_by(
+                    user_id=current_user.id
+                ).order_by(ChatMessage.timestamp.desc()).limit(10).all()
+                
+                # 按时间顺序排序（从旧到新）
+                recent_messages.reverse()
+                
+                # 添加到上下文
+                for msg in recent_messages:
+                    role = "user" if msg.is_user else "assistant"
+                    messages.append({"role": role, "content": msg.content})
+                
+                # 添加情绪历史分析
+                emotion_history = EmotionRecord.query.filter_by(
+                    user_id=current_user.id
+                ).order_by(EmotionRecord.timestamp.desc()).limit(20).all()
+                
+                if emotion_history and len(emotion_history) >= 5:
+                    # 统计情绪频率
+                    emotion_counts = {}
+                    for record in emotion_history:
+                        emotion_counts[record.emotion] = emotion_counts.get(record.emotion, 0) + 1
+                    
+                    # 找出主要情绪趋势
+                    dominant_emotions = sorted(
+                        [(e, c) for e, c in emotion_counts.items()],
+                        key=lambda x: x[1],
+                        reverse=True
+                    )[:2]  # 取前两个主要情绪
+                    
+                    emotion_trend = "用户情绪趋势: " + ", ".join([f"{e}({c}次)" for e, c in dominant_emotions])
+                    messages.append({"role": "system", "content": emotion_trend})
+        except Exception as e:
+            current_app.logger.error(f"添加对话历史时出错: {str(e)}")
+        
+        # 添加用户消息
+        messages.append({"role": "user", "content": message})
+        
+        # 打印请求消息，用于调试
+        current_app.logger.info("发送到讯飞星火API的消息: %s", json.dumps(messages, ensure_ascii=False))
+        
+        # 设置超时时间（秒）
+        timeout = 10
+        
+        try:
+            # 调用SparkAPI生成回复，添加超时处理
+            import threading
+            import time
+            
+            result = {"reply": None, "error": None}
+            
+            def call_api():
+                try:
+                    result["reply"] = spark_client.chat(messages)
+                except Exception as e:
+                    result["error"] = str(e)
+            
+            # 创建线程调用API
+            api_thread = threading.Thread(target=call_api)
+            api_thread.daemon = True
+            api_thread.start()
+            
+            # 等待线程完成或超时
+            start_time = time.time()
+            while api_thread.is_alive() and time.time() - start_time < timeout:
+                time.sleep(0.1)
+            
+            # 检查是否超时
+            if api_thread.is_alive():
+                current_app.logger.warning("讯飞星火API调用超时")
+                return generate_reply(message, emotion, persona)
+            
+            # 检查是否有错误
+            if result["error"]:
+                current_app.logger.error("讯飞星火API调用失败: %s", result["error"])
+                return generate_reply(message, emotion, persona)
+            
+            reply = result["reply"]
+            
+        except Exception as e:
+            current_app.logger.error("调用讯飞星火API过程中发生异常: %s", str(e), exc_info=True)
+            return generate_reply(message, emotion, persona)
+        
+        # 打印响应，用于调试
+        current_app.logger.info("讯飞星火API的响应: %s", reply)
+        
+        # 如果响应为空或包含默认错误消息，则使用本地回复生成
+        if not reply or "抱歉，我暂时无法回答您的问题" in reply:
+            current_app.logger.warning("讯飞星火API返回空响应或错误消息，使用本地回复生成")
+            return generate_reply(message, emotion, persona)
+        
+        return reply
+    except Exception as e:
+        current_app.logger.error("调用讯飞星火API失败: %s", str(e), exc_info=True)
+        # 如果API调用失败，回退到原始的回复生成方法
+        return generate_reply(message, emotion, persona)
+
+def recommend_products(emotion, user_id=None):
+    """根据情绪和用户历史推荐香薰产品"""
+    try:
+        # 基础查询：与当前情绪相关的产品
+        products_query = AromaProduct.query.join(
+            product_emotions
+        ).filter(product_emotions.c.emotion == emotion)
+        
+        # 如果提供了用户ID，考虑用户的历史偏好
+        if user_id:
+            user = User.query.get(user_id)
+            if user and user.aroma_preferences:
+                try:
+                    # 解析用户的香薰偏好
+                    aroma_preferences = json.loads(user.aroma_preferences)
+                    if aroma_preferences and isinstance(aroma_preferences, list) and len(aroma_preferences) > 0:
+                        # 获取用户偏好的产品
+                        preferred_products = products_query.filter(AromaProduct.id.in_(aroma_preferences)).all()
+                        
+                        # 如果找到了用户偏好的产品，优先推荐这些
+                        if preferred_products and len(preferred_products) >= 2:
+                            return preferred_products[:3]
+                        
+                        # 如果用户偏好的产品不足3个，补充其他相关产品
+                        remaining_count = 3 - len(preferred_products)
+                        other_products = products_query.filter(~AromaProduct.id.in_(aroma_preferences)).limit(remaining_count).all()
+                        
+                        return preferred_products + other_products
+                except (json.JSONDecodeError, Exception) as e:
+                    current_app.logger.error(f"解析用户香薰偏好时出错: {str(e)}")
+            
+            # 分析用户的情绪历史
+            # 获取用户最近一周的情绪记录
+            one_week_ago = datetime.utcnow() - timedelta(days=7)
+            emotion_records = EmotionRecord.query.filter(
+                EmotionRecord.user_id == user_id,
+                EmotionRecord.timestamp >= one_week_ago
+            ).all()
+            
+            # 如果有足够的情绪记录，分析主要情绪趋势
+            if emotion_records and len(emotion_records) >= 3:
+                # 统计情绪出现频率
+                emotion_counts = {}
+                for record in emotion_records:
+                    emotion_counts[record.emotion] = emotion_counts.get(record.emotion, 0) + 1
+                
+                # 找出最常见的情绪（除了当前情绪）
+                common_emotions = sorted(
+                    [(e, c) for e, c in emotion_counts.items() if e != emotion],
+                    key=lambda x: x[1],
+                    reverse=True
+                )
+                
+                # 如果有其他常见情绪，也考虑推荐适合这些情绪的产品
+                if common_emotions:
+                    common_emotion = common_emotions[0][0]
+                    # 获取适合当前情绪的产品
+                    current_emotion_products = products_query.limit(2).all()
+                    
+                    # 获取适合常见情绪的产品
+                    common_emotion_products = AromaProduct.query.join(
+                        product_emotions
+                    ).filter(product_emotions.c.emotion == common_emotion).limit(1).all()
+                    
+                    # 合并推荐
+                    return current_emotion_products + common_emotion_products
+        
+        # 默认情况：返回与当前情绪相关的产品
+        products = products_query.limit(3).all()
+        
+        # 如果没有找到相关产品，返回随机产品
+        if not products:
+            products = AromaProduct.query.order_by(db.func.random()).limit(3).all()
+        
+        return products
+    except Exception as e:
+        current_app.logger.error(f"推荐产品时出错: {str(e)}")
+        # 出错时返回随机产品
+        return AromaProduct.query.order_by(db.func.random()).limit(3).all()
+
+# 获取情绪类型
+def get_emotion_type(emotion):
+    emotion_types = {
+        '快乐': 'happy',
+        '悲伤': 'sad',
+        '愤怒': 'angry',
+        '焦虑': 'anxious',
+        '疲惫': 'tired',
+        '平静': 'neutral'
+    }
+    return emotion_types.get(emotion, 'neutral')
+
+# 获取情绪图标
+def get_emotion_icon(emotion):
+    emotion_icons = {
+        '快乐': 'fa-grin-beam',
+        '悲伤': 'fa-sad-tear',
+        '愤怒': 'fa-angry',
+        '焦虑': 'fa-frown',
+        '疲惫': 'fa-tired',
+        '平静': 'fa-smile'
+    }
+    return emotion_icons.get(emotion, 'fa-smile')
+
+# 获取情绪描述
+def get_emotion_description(emotion):
+    emotion_descriptions = {
+        '快乐': '您似乎心情不错！享受这美好的时刻，并记住这种感觉。',
+        '悲伤': '您似乎感到有些悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。',
+        '愤怒': '您似乎感到有些愤怒。这是一种正常的情绪，尝试找到健康的方式来表达它。',
+        '焦虑': '您似乎感到有些焦虑。深呼吸可能会有所帮助，尝试放松您的身心。',
+        '疲惫': '您似乎感到有些疲惫。适当的休息对身心健康都很重要。',
+        '平静': '您当前的情绪状态看起来很平静'
+    }
+    return emotion_descriptions.get(emotion, '您当前的情绪状态看起来很平静') 
