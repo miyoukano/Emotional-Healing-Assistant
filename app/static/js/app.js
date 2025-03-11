@@ -1704,19 +1704,22 @@ if (isBrowser) {
 
     // 初始化模态框
     function initModals() {
-        // 确保所有模态框的关闭按钮正常工作
-        document.querySelectorAll('.close-modal').forEach(closeBtn => {
-            closeBtn.addEventListener('click', function () {
+        // 初始化登录/注册模态框
+        document.getElementById('authButton').addEventListener('click', () => {
+            openModal('authModal');
+        });
+        
+        // 初始化关闭按钮
+        document.querySelectorAll('.close-modal').forEach(button => {
+            button.addEventListener('click', function() {
                 const modal = this.closest('.modal');
                 if (modal) {
-                    // 使用全局closeModal函数关闭模态框
+                    // 使用window.closeModal函数关闭模态框
                     if (typeof window.closeModal === 'function') {
                         window.closeModal(modal.id);
                     } else {
                         // 如果全局函数不可用，则使用传统方式
                         modal.classList.remove('active');
-
-                        // 隐藏遮罩层
                         const modalOverlay = document.getElementById('modalOverlay');
                         if (modalOverlay) {
                             modalOverlay.classList.remove('active');
@@ -1726,11 +1729,31 @@ if (isBrowser) {
                 }
             });
         });
-
-        // 阻止模态框内容区域的点击事件冒泡到模态框本身
-        document.querySelectorAll('.modal-content').forEach(content => {
-            content.addEventListener('click', function (e) {
-                e.stopPropagation();
+        
+        // 初始化标签页切换
+        document.querySelectorAll('.auth-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                
+                // 更新标签页状态
+                document.querySelectorAll('.auth-tab').forEach(t => {
+                    t.classList.remove('active');
+                });
+                tab.classList.add('active');
+                
+                // 更新表单显示
+                document.querySelectorAll('.auth-form').forEach(form => {
+                    form.classList.remove('active');
+                });
+                document.querySelector(`.${tabName}-form`).classList.add('active');
+            });
+        });
+        
+        // 初始化便签删除功能
+        document.querySelectorAll('.tag i').forEach(closeIcon => {
+            closeIcon.addEventListener('click', function() {
+                const tag = this.parentElement;
+                tag.remove();
             });
         });
     }

@@ -628,9 +628,8 @@ body {
         flex-direction: column;
     }
 
-    .emotion-preferences,
-    .aroma-preferences {
-        grid-template-columns: 1fr;
+    .user-tags {
+        justify-content: center;
     }
 }
 
@@ -996,23 +995,9 @@ body {
 }
 
 .profile-form h3 {
-    margin: 20px 0 15px;
+    margin-top: 20px;
+    margin-bottom: 10px;
     font-size: 1.1rem;
-}
-
-.emotion-preferences,
-.aroma-preferences {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 15px;
-    margin-bottom: 20px;
-}
-
-.emotion-preference,
-.aroma-preference {
-    display: flex;
-    align-items: center;
-    gap: 8px;
 }
 
 .profile-save-button {
@@ -1030,7 +1015,7 @@ body {
 }
 
 .profile-save-button:hover {
-    background-color: var(--primary-dark);
+    background-color: #6a4caf;
 }
 
 /* 重试按钮样式 */
@@ -1060,4 +1045,38 @@ body {
 
 [data-theme="dark"] .retry-button:hover {
     background-color: var(--primary-color);
+}
+
+/* 用户便签样式 */
+.user-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.tag {
+    display: flex;
+    align-items: center;
+    background-color: var(--primary-color);
+    color: white;
+    padding: 5px 10px;
+    border-radius: 15px;
+    font-size: 0.9rem;
+    gap: 5px;
+}
+
+.tag i {
+    cursor: pointer;
+    font-size: 0.8rem;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.tag i:hover {
+    opacity: 1;
+}
+
+[data-theme="dark"] .tag {
+    background-color: #6a4caf;
 }

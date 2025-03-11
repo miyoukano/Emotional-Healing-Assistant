@@ -374,7 +374,6 @@
                 <div class="user-menu">
                     <ul>
                         <li><i class="fas fa-user-circle"></i> 个人资料</li>
-                        <li><i class="fas fa-cog"></i> 设置</li>
                         <li><i class="fas fa-sign-out-alt"></i> 退出登录</li>
                     </ul>
                 </div>
@@ -587,43 +586,23 @@
                         <input type="password" id="profilePassword" placeholder="输入新密码">
                     </div>
                     
-                    <h3>情绪偏好设置</h3>
-                    <div class="emotion-preferences">
-                        <div class="emotion-preference">
-                            <input type="checkbox" id="emotionAnxiety" checked>
-                            <label for="emotionAnxiety">焦虑</label>
+                    <h3>个人便签</h3>
+                    <div class="user-tags">
+                        <div class="tag">
+                            <span>薰衣草</span>
+                            <i class="fas fa-times"></i>
                         </div>
-                        <div class="emotion-preference">
-                            <input type="checkbox" id="emotionStress">
-                            <label for="emotionStress">压力</label>
+                        <div class="tag">
+                            <span>放松</span>
+                            <i class="fas fa-times"></i>
                         </div>
-                        <div class="emotion-preference">
-                            <input type="checkbox" id="emotionSadness">
-                            <label for="emotionSadness">悲伤</label>
+                        <div class="tag">
+                            <span>助眠</span>
+                            <i class="fas fa-times"></i>
                         </div>
-                        <div class="emotion-preference">
-                            <input type="checkbox" id="emotionInsomnia">
-                            <label for="emotionInsomnia">失眠</label>
-                        </div>
-                    </div>
-                    
-                    <h3>香薰产品偏好</h3>
-                    <div class="aroma-preferences">
-                        <div class="aroma-preference">
-                            <input type="checkbox" id="aromaLavender" checked>
-                            <label for="aromaLavender">薰衣草</label>
-                        </div>
-                        <div class="aroma-preference">
-                            <input type="checkbox" id="aromaLemon">
-                            <label for="aromaLemon">柠檬</label>
-                        </div>
-                        <div class="aroma-preference">
-                            <input type="checkbox" id="aromaJasmine" checked>
-                            <label for="aromaJasmine">茉莉花</label>
-                        </div>
-                        <div class="aroma-preference">
-                            <input type="checkbox" id="aromaPeppermint">
-                            <label for="aromaPeppermint">薄荷</label>
+                        <div class="tag">
+                            <span>茉莉花</span>
+                            <i class="fas fa-times"></i>
                         </div>
                     </div>
                     
@@ -695,9 +674,7 @@
                     
                     if (index === 0) { // 个人资料
                         openModal('profileModal');
-                    } else if (index === 1) { // 设置
-                        alert('设置功能即将上线');
-                    } else if (index === 2) { // 退出登录
+                    } else if (index === 1) { // 退出登录
                         fetch('/auth/logout')
                             .then(response => response.json())
                             .then(data => {
@@ -817,7 +794,11 @@
             
             // 重新绑定关闭按钮事件
             document.querySelectorAll('.close-modal').forEach(closeBtn => {
-                closeBtn.addEventListener('click', function() {
+                // 移除已有的点击事件监听器
+                const newBtn = closeBtn.cloneNode(true);
+                closeBtn.parentNode.replaceChild(newBtn, closeBtn);
+                
+                newBtn.addEventListener('click', function() {
                     const modal = this.closest('.modal');
                     if (modal) {
                         closeModal(modal.id);
