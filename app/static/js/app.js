@@ -49,32 +49,7 @@ if (isBrowser) {
     });
 
     // 模拟的香薰产品数据
-    const aromatherapyProducts = [
-        {
-            id: 1,
-            name: '薰衣草精油',
-            description: '舒缓放松，帮助睡眠，缓解焦虑',
-            image: 'https://images.unsplash.com/photo-1595981267035-7b04ca84a82d?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-            emotions: ['焦虑', '压力', '失眠'],
-            fullDescription: '薰衣草精油以其舒缓特性而闻名，能有效缓解焦虑和压力。它的香气有助于改善睡眠质量，减轻紧张情绪。在情绪低落时，薰衣草的温和香气能带来平静与安宁。'
-        },
-        {
-            id: 2,
-            name: '柠檬香薰蜡烛',
-            description: '提振精神，增强专注力，改善情绪',
-            image: 'https://images.unsplash.com/photo-1602178506153-472ef4810278?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-            emotions: ['疲惫', '注意力不集中', '情绪低落'],
-            fullDescription: '柠檬香薰蜡烛散发出清新的柑橘香气，能有效提振精神和改善情绪。它的香气有助于增强专注力，适合在工作或学习时使用。柠檬的香气也被认为能促进积极思考，驱散消极情绪。'
-        },
-        {
-            id: 3,
-            name: '茉莉花精油扩香器',
-            description: '平衡情绪，缓解抑郁，增强自信',
-            image: 'https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-            emotions: ['抑郁', '自卑', '情绪波动'],
-            fullDescription: '茉莉花精油以其甜美而浓郁的香气著称，能有效平衡情绪，缓解抑郁症状。它的香气被认为能增强自信，提升积极情绪。茉莉花精油扩香器可以持续释放香气，为空间营造温馨舒适的氛围。'
-        }
-    ];
+    let aromatherapyProducts = [];
 
     // DOM元素
     const chatMessages = document.getElementById('chatMessages');
@@ -788,12 +763,56 @@ if (isBrowser) {
     // 加载推荐
     function loadRecommendations() {
         recommendationCards.innerHTML = '';
-
-        // 随机选择2个产品显示
-        const shuffled = [...aromatherapyProducts].sort(() => 0.5 - Math.random());
-        const selected = shuffled.slice(0, 2);
-
-        selected.forEach(product => {
+        
+        // 从API获取推荐产品
+        fetch('/api/products?per_page=2')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.products && data.products.length > 0) {
+                    // 更新全局产品数据
+                    aromatherapyProducts = data.products;
+                    
+                    // 显示产品
+                    data.products.forEach(product => {
+                        const card = createProductCard(product);
+                        recommendationCards.appendChild(card);
+                    });
+                } else {
+                    console.error('获取产品数据失败:', data);
+                    // 如果API请求失败，显示默认推荐
+                    showDefaultRecommendations();
+                }
+            })
+            .catch(error => {
+                console.error('获取产品数据出错:', error);
+                // 如果API请求出错，显示默认推荐
+                showDefaultRecommendations();
+            });
+    }
+    
+    // 显示默认推荐
+    function showDefaultRecommendations() {
+        recommendationCards.innerHTML = '';
+        
+        // 默认产品数据
+        const defaultProducts = [
+            {
+                id: 1,
+                name: '薰衣草精油',
+                description: '舒缓放松，帮助睡眠，缓解焦虑',
+                image: 'https://images.unsplash.com/photo-1595981267035-7b04ca84a82d?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
+                emotions: ['焦虑', '压力', '失眠']
+            },
+            {
+                id: 2,
+                name: '柠檬香薰蜡烛',
+                description: '提振精神，增强专注力，改善情绪',
+                image: 'https://images.unsplash.com/photo-1602178506153-472ef4810278?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
+                emotions: ['疲惫', '注意力不集中', '情绪低落']
+            }
+        ];
+        
+        defaultProducts.forEach(product => {
             const card = createProductCard(product);
             recommendationCards.appendChild(card);
         });
@@ -819,8 +838,13 @@ if (isBrowser) {
         cardImage.classList.add('card-image');
 
         const img = document.createElement('img');
-        img.src = product.image;
+        // 使用产品图片或默认图片
+        img.src = product.image || 'https://via.placeholder.com/300x200?text=无图片';
         img.alt = product.name;
+        img.onerror = function() {
+            // 如果图片加载失败，使用默认图片
+            this.src = 'https://via.placeholder.com/300x200?text=无图片';
+        };
 
         cardImage.appendChild(img);
 
@@ -837,7 +861,12 @@ if (isBrowser) {
 
         const cardEmotions = document.createElement('div');
         cardEmotions.classList.add('card-emotion');
-        cardEmotions.textContent = '适用情绪: ' + product.emotions.join(', ');
+        
+        // 确保emotions是数组
+        const emotions = Array.isArray(product.emotions) ? product.emotions : [];
+        cardEmotions.textContent = emotions.length > 0 ? 
+            '适用情绪: ' + emotions.join(', ') : 
+            '适用情绪: 多种情绪';
 
         cardContent.appendChild(cardTitle);
         cardContent.appendChild(cardDescription);
@@ -861,124 +890,154 @@ if (isBrowser) {
 
         // 清空现有内容
         productDetails.innerHTML = '';
-
-        // 创建产品图片
-        const productImage = document.createElement('div');
-        productImage.classList.add('product-image');
-
-        const img = document.createElement('img');
-        img.src = product.image;
-        img.alt = product.name;
-
-        productImage.appendChild(img);
-
-        // 创建产品信息
-        const productInfo = document.createElement('div');
-        productInfo.classList.add('product-info');
-
-        const title = document.createElement('h3');
-        title.textContent = product.name;
-
-        const description = document.createElement('p');
-        description.textContent = product.full_description || product.description;
-
-        // 创建情绪效果部分
-        const emotionEffectsTitle = document.createElement('h4');
-        emotionEffectsTitle.textContent = '情绪效果:';
         
-        const emotionEffects = document.createElement('div');
-        emotionEffects.classList.add('emotion-effects');
+        // 显示加载中
+        const loadingElement = document.createElement('div');
+        loadingElement.classList.add('loading-indicator');
+        loadingElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 加载产品详情...';
+        productDetails.appendChild(loadingElement);
         
-        // 为每种情绪创建效果说明
-        const emotionEffectMap = {
-            '快乐': '增强愉悦感，提升积极情绪，帮助保持乐观心态',
-            '悲伤': '舒缓心情，减轻忧郁感，带来温暖和安慰',
-            '愤怒': '平复情绪，缓解紧张，帮助恢复平静',
-            '焦虑': '减轻压力，舒缓神经，促进放松和安宁',
-            '疲惫': '提振精神，恢复活力，改善注意力和集中力',
-            '平静': '维持内心平衡，促进冥想和专注'
-        };
+        // 显示模态框
+        productModal.classList.add('active');
+        document.getElementById('modalOverlay').classList.add('active');
+        document.body.classList.add('modal-open');
         
-        // 添加当前情绪的效果说明
-        if (product.emotions && product.emotions.length > 0) {
-            product.emotions.forEach(emotion => {
-                const effectItem = document.createElement('div');
-                effectItem.classList.add('effect-item');
+        // 从API获取产品详情
+        fetch(`/api/product_details/${product.id}`)
+            .then(response => response.json())
+            .then(data => {
+                // 清空加载指示器
+                productDetails.innerHTML = '';
                 
-                const emotionName = document.createElement('span');
-                emotionName.classList.add('emotion-name');
-                emotionName.textContent = emotion + ': ';
-                
-                const effectDesc = document.createElement('span');
-                effectDesc.classList.add('effect-desc');
-                effectDesc.textContent = emotionEffectMap[emotion] || '帮助调节情绪，促进身心健康';
-                
-                effectItem.appendChild(emotionName);
-                effectItem.appendChild(effectDesc);
-                emotionEffects.appendChild(effectItem);
-                
-                // 如果是当前情绪，添加高亮
-                if (emotion === currentEmotion) {
-                    effectItem.classList.add('current-emotion');
+                if (data.success && data.product) {
+                    const productData = data.product;
                     
-                    // 添加推荐理由
-                    const recommendReason = document.createElement('div');
-                    recommendReason.classList.add('recommend-reason');
-                    recommendReason.innerHTML = `<i class="fas fa-star"></i> 推荐理由: 这款香薰特别适合您当前的<strong>${currentEmotion}</strong>情绪状态，可以${emotionEffectMap[emotion] ? emotionEffectMap[emotion].split('，')[0].toLowerCase() : '帮助调节情绪'}。`;
-                    emotionEffects.appendChild(recommendReason);
+                    // 创建产品图片
+                    const productImage = document.createElement('div');
+                    productImage.classList.add('product-image');
+
+                    const img = document.createElement('img');
+                    img.src = productData.image || 'https://via.placeholder.com/300x200?text=无图片';
+                    img.alt = productData.name;
+
+                    productImage.appendChild(img);
+
+                    // 创建产品信息
+                    const productInfo = document.createElement('div');
+                    productInfo.classList.add('product-info');
+
+                    const title = document.createElement('h3');
+                    title.textContent = productData.name;
+
+                    const description = document.createElement('p');
+                    description.textContent = productData.full_description || productData.description;
+
+                    // 创建情绪效果部分
+                    const emotionEffectsTitle = document.createElement('h4');
+                    emotionEffectsTitle.textContent = '情绪效果:';
+                    
+                    const emotionEffects = document.createElement('div');
+                    emotionEffects.classList.add('emotion-effects');
+                    
+                    // 为每种情绪创建效果说明
+                    const emotionEffectMap = {
+                        '快乐': '增强愉悦感，提升积极情绪，帮助保持乐观心态',
+                        '悲伤': '舒缓心情，减轻忧郁感，带来温暖和安慰',
+                        '愤怒': '平复情绪，缓解紧张，帮助恢复平静',
+                        '焦虑': '减轻压力，舒缓神经，促进放松和安宁',
+                        '疲惫': '提振精神，恢复活力，改善注意力和集中力',
+                        '平静': '维持内心平衡，促进冥想和专注'
+                    };
+                    
+                    // 添加当前情绪的效果说明
+                    if (productData.emotions && productData.emotions.length > 0) {
+                        productData.emotions.forEach(emotion => {
+                            const effectItem = document.createElement('div');
+                            effectItem.classList.add('effect-item');
+                            
+                            const emotionName = document.createElement('span');
+                            emotionName.classList.add('emotion-name');
+                            emotionName.textContent = emotion + ': ';
+                            
+                            const effectDesc = document.createElement('span');
+                            effectDesc.classList.add('effect-desc');
+                            effectDesc.textContent = emotionEffectMap[emotion] || '帮助调节情绪，促进身心健康';
+                            
+                            effectItem.appendChild(emotionName);
+                            effectItem.appendChild(effectDesc);
+                            emotionEffects.appendChild(effectItem);
+                            
+                            // 如果是当前情绪，添加高亮
+                            if (emotion === currentEmotion) {
+                                effectItem.classList.add('current-emotion');
+                                
+                                // 添加推荐理由
+                                const recommendReason = document.createElement('div');
+                                recommendReason.classList.add('recommend-reason');
+                                recommendReason.innerHTML = `<i class="fas fa-star"></i> 推荐理由: 这款香薰特别适合您当前的<strong>${currentEmotion}</strong>情绪状态，可以${emotionEffectMap[emotion] ? emotionEffectMap[emotion].split('，')[0].toLowerCase() : '帮助调节情绪'}。`;
+                                emotionEffects.appendChild(recommendReason);
+                            }
+                        });
+                    }
+                    
+                    // 添加价格信息（如果有）
+                    if (productData.price) {
+                        const priceInfo = document.createElement('div');
+                        priceInfo.classList.add('price-info');
+                        priceInfo.innerHTML = `<strong>价格:</strong> ¥${productData.price.toFixed(2)}`;
+                        productInfo.appendChild(priceInfo);
+                    }
+                    
+                    // 添加评分信息（如果有）
+                    if (productData.rating) {
+                        const ratingInfo = document.createElement('div');
+                        ratingInfo.classList.add('rating-info');
+                        
+                        // 创建星星评分
+                        let starsHtml = '';
+                        const fullStars = Math.floor(productData.rating);
+                        const halfStar = productData.rating % 1 >= 0.5;
+                        
+                        for (let i = 1; i <= 5; i++) {
+                            if (i <= fullStars) {
+                                starsHtml += '<i class="fas fa-star"></i>';
+                            } else if (i === fullStars + 1 && halfStar) {
+                                starsHtml += '<i class="fas fa-star-half-alt"></i>';
+                            } else {
+                                starsHtml += '<i class="far fa-star"></i>';
+                            }
+                        }
+                        
+                        ratingInfo.innerHTML = `<strong>评分:</strong> ${starsHtml} (${productData.rating.toFixed(1)})`;
+                        productInfo.appendChild(ratingInfo);
+                    }
+
+                    // 组装所有元素
+                    productInfo.appendChild(title);
+                    productInfo.appendChild(description);
+                    productInfo.appendChild(emotionEffectsTitle);
+                    productInfo.appendChild(emotionEffects);
+
+                    productDetails.appendChild(productImage);
+                    productDetails.appendChild(productInfo);
+                } else {
+                    // 显示错误信息
+                    const errorMessage = document.createElement('div');
+                    errorMessage.classList.add('error-message');
+                    errorMessage.textContent = '无法加载产品详情，请稍后再试。';
+                    productDetails.appendChild(errorMessage);
                 }
+            })
+            .catch(error => {
+                console.error('获取产品详情出错:', error);
+                
+                // 显示错误信息
+                productDetails.innerHTML = '';
+                const errorMessage = document.createElement('div');
+                errorMessage.classList.add('error-message');
+                errorMessage.textContent = '加载产品详情时出错，请稍后再试。';
+                productDetails.appendChild(errorMessage);
             });
-        }
-
-        const emotionsTitle = document.createElement('h4');
-        emotionsTitle.textContent = '适用情绪:';
-
-        const emotions = document.createElement('div');
-        emotions.classList.add('product-emotions');
-
-        product.emotions.forEach(emotion => {
-            const emotionTag = document.createElement('span');
-            emotionTag.classList.add('product-emotion');
-            emotionTag.textContent = emotion;
-            // 如果是当前情绪，添加高亮
-            if (emotion === currentEmotion) {
-                emotionTag.classList.add('current-emotion');
-            }
-            emotions.appendChild(emotionTag);
-        });
-
-        // 添加使用方法
-        const usageTitle = document.createElement('h4');
-        usageTitle.textContent = '使用方法:';
-        
-        const usage = document.createElement('p');
-        usage.classList.add('product-usage');
-        usage.textContent = '将香薰精油滴入扩香器中，或加入热水中蒸发，让香气弥漫在空间中。也可以滴在手帕上随身携带，需要时轻轻闻嗅。';
-
-        productInfo.appendChild(title);
-        productInfo.appendChild(description);
-        productInfo.appendChild(emotionEffectsTitle);
-        productInfo.appendChild(emotionEffects);
-        productInfo.appendChild(emotionsTitle);
-        productInfo.appendChild(emotions);
-        productInfo.appendChild(usageTitle);
-        productInfo.appendChild(usage);
-
-        productDetails.appendChild(productImage);
-        productDetails.appendChild(productInfo);
-
-        // 使用全局openModal函数打开模态框
-        if (typeof window.openModal === 'function') {
-            window.openModal('productModal');
-        } else {
-            // 如果全局函数不可用，则使用传统方式
-            productModal.classList.add('active');
-            const modalOverlay = document.getElementById('modalOverlay');
-            if (modalOverlay) {
-                modalOverlay.classList.add('active');
-            }
-            document.body.classList.add('modal-open');
-        }
     }
 
     // 添加CSS样式

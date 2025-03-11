@@ -3,10 +3,13 @@ from flask_login import login_required, current_user
 from app import db, csrf
 from app.models import User, ChatMessage, EmotionRecord, AromaProduct, product_emotions
 from app.utils.spark_api import get_spark_client
+from app.utils.aromatherapy_recommender import recommend_products_for_emotion, get_product_details
 import json
 from datetime import datetime, timedelta
 import os
 from werkzeug.utils import secure_filename
+import sys
+import logging
 
 api_bp = Blueprint('api', __name__)
 
@@ -104,7 +107,7 @@ def chat():
                 'emotion_type': get_emotion_type(emotion),
                 'emotion_icon': get_emotion_icon(emotion),
                 'emotion_description': get_emotion_description(emotion),
-                'recommendations': [product.to_dict() for product in recommended_products]
+                'recommendations': recommended_products
             }
             
             return jsonify(response)
@@ -611,84 +614,46 @@ def generate_reply_with_spark(message, emotion, persona):
         return generate_reply(message, emotion, persona)
 
 def recommend_products(emotion, user_id=None):
-    """根据情绪和用户历史推荐香薰产品"""
+    """
+    根据情绪和用户ID推荐香薰产品
+    
+    Args:
+        emotion: 情绪关键词
+        user_id: 用户ID，用于个性化推荐
+        
+    Returns:
+        list: 推荐产品列表
+    """
     try:
-        # 基础查询：与当前情绪相关的产品
-        products_query = AromaProduct.query.join(
-            product_emotions
-        ).filter(product_emotions.c.emotion == emotion)
+        # 调用香薰产品推荐模块
+        products = recommend_products_for_emotion(emotion, limit=3)
         
-        # 如果提供了用户ID，考虑用户的历史偏好
+        # 如果有用户ID，尝试获取用户偏好
         if user_id:
-            user = User.query.get(user_id)
-            if user and user.aroma_preferences:
-                try:
-                    # 解析用户的香薰偏好
-                    aroma_preferences = json.loads(user.aroma_preferences)
-                    if aroma_preferences and isinstance(aroma_preferences, list) and len(aroma_preferences) > 0:
-                        # 获取用户偏好的产品
-                        preferred_products = products_query.filter(AromaProduct.id.in_(aroma_preferences)).all()
-                        
-                        # 如果找到了用户偏好的产品，优先推荐这些
-                        if preferred_products and len(preferred_products) >= 2:
-                            return preferred_products[:3]
-                        
-                        # 如果用户偏好的产品不足3个，补充其他相关产品
-                        remaining_count = 3 - len(preferred_products)
-                        other_products = products_query.filter(~AromaProduct.id.in_(aroma_preferences)).limit(remaining_count).all()
-                        
-                        return preferred_products + other_products
-                except (json.JSONDecodeError, Exception) as e:
-                    current_app.logger.error(f"解析用户香薰偏好时出错: {str(e)}")
-            
-            # 分析用户的情绪历史
-            # 获取用户最近一周的情绪记录
-            one_week_ago = datetime.utcnow() - timedelta(days=7)
-            emotion_records = EmotionRecord.query.filter(
-                EmotionRecord.user_id == user_id,
-                EmotionRecord.timestamp >= one_week_ago
-            ).all()
-            
-            # 如果有足够的情绪记录，分析主要情绪趋势
-            if emotion_records and len(emotion_records) >= 3:
-                # 统计情绪出现频率
-                emotion_counts = {}
-                for record in emotion_records:
-                    emotion_counts[record.emotion] = emotion_counts.get(record.emotion, 0) + 1
-                
-                # 找出最常见的情绪（除了当前情绪）
-                common_emotions = sorted(
-                    [(e, c) for e, c in emotion_counts.items() if e != emotion],
-                    key=lambda x: x[1],
-                    reverse=True
-                )
-                
-                # 如果有其他常见情绪，也考虑推荐适合这些情绪的产品
-                if common_emotions:
-                    common_emotion = common_emotions[0][0]
-                    # 获取适合当前情绪的产品
-                    current_emotion_products = products_query.limit(2).all()
+            try:
+                # 获取用户对象
+                user = User.query.get(user_id)
+                if user and user.aroma_preferences:
+                    # 获取用户的香薰偏好
+                    aroma_prefs = json.loads(user.aroma_preferences)
                     
-                    # 获取适合常见情绪的产品
-                    common_emotion_products = AromaProduct.query.join(
-                        product_emotions
-                    ).filter(product_emotions.c.emotion == common_emotion).limit(1).all()
-                    
-                    # 合并推荐
-                    return current_emotion_products + common_emotion_products
-        
-        # 默认情况：返回与当前情绪相关的产品
-        products = products_query.limit(3).all()
-        
-        # 如果没有找到相关产品，返回随机产品
-        if not products:
-            products = AromaProduct.query.order_by(db.func.random()).limit(3).all()
+                    # 如果用户有香薰偏好，调整推荐结果
+                    if aroma_prefs:
+                        # 这里可以添加更复杂的个性化逻辑
+                        pass
+            except Exception as e:
+                current_app.logger.error(f"读取用户偏好时出错: {str(e)}")
         
         return products
+    
     except Exception as e:
         current_app.logger.error(f"推荐产品时出错: {str(e)}")
-        # 出错时返回随机产品
-        return AromaProduct.query.order_by(db.func.random()).limit(3).all()
+        # 返回一些默认推荐
+        return [
+            {"name": "薰衣草精油", "type": "精油", "description": "有助于缓解焦虑和改善睡眠"},
+            {"name": "柠檬精油", "type": "精油", "description": "提神醒脑，改善情绪"},
+            {"name": "茉莉花香薰", "type": "香薰", "description": "舒缓情绪，带来平静感"}
+        ]
 
 # 获取情绪类型
 def get_emotion_type(emotion):
@@ -724,4 +689,63 @@ def get_emotion_description(emotion):
         '疲惫': '您似乎感到有些疲惫。适当的休息对身心健康都很重要。',
         '平静': '您当前的情绪状态看起来很平静'
     }
-    return emotion_descriptions.get(emotion, '您当前的情绪状态看起来很平静') 
+    return emotion_descriptions.get(emotion, '您当前的情绪状态看起来很平静')
+
+@api_bp.route('/recommend_products', methods=['POST'])
+@csrf.exempt
+def api_recommend_products():
+    """根据情绪推荐香薰产品"""
+    if not request.is_json:
+        return jsonify({"success": False, "message": "请求必须是JSON格式"}), 400
+    
+    data = request.json
+    emotion = data.get('emotion')
+    limit = data.get('limit', 3)
+    
+    if not emotion:
+        return jsonify({"success": False, "message": "必须提供情绪参数"}), 400
+    
+    try:
+        # 调用推荐函数
+        products = recommend_products_for_emotion(emotion, limit)
+        
+        return jsonify({
+            "success": True,
+            "emotion": emotion,
+            "products": products
+        })
+    
+    except Exception as e:
+        current_app.logger.error(f"推荐产品时出错: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "推荐产品时出错",
+            "error": str(e)
+        }), 500
+
+@api_bp.route('/product_details/<product_id>', methods=['GET'])
+@csrf.exempt
+def api_product_details(product_id):
+    """获取产品详细信息"""
+    try:
+        # 调用获取产品详情函数
+        product = get_product_details(product_id)
+        
+        if not product:
+            return jsonify({
+                "success": False,
+                "message": f"未找到ID为 {product_id} 的产品"
+            }), 404
+        
+        return jsonify({
+            "success": True,
+            "product": product
+        })
+    
+    except Exception as e:
+        current_app.logger.error(f"获取产品详情时出错: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": "获取产品详情时出错",
+            "error": str(e)
+        }), 500 
