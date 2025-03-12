@@ -764,19 +764,46 @@ if (isBrowser) {
     function loadRecommendations() {
         recommendationCards.innerHTML = '';
         
-        // 从API获取推荐产品
-        fetch('/api/products?per_page=2')
+        // 添加加载指示器
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.classList.add('loading-indicator');
+        loadingIndicator.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 加载推荐中...';
+        recommendationCards.appendChild(loadingIndicator);
+        
+        // 检查用户是否登录
+        const isLoggedIn = document.querySelector('.user-info') !== null;
+        
+        // 从API获取随机推荐产品，如果用户已登录则使用个性化推荐
+        fetch(`/api/products?per_page=2&random=true&personalized=${isLoggedIn}`)
             .then(response => response.json())
             .then(data => {
+                // 移除加载指示器
+                recommendationCards.innerHTML = '';
+                
                 if (data.success && data.products && data.products.length > 0) {
                     // 更新全局产品数据
                     aromatherapyProducts = data.products;
+                    
+                    // 如果是个性化推荐，显示提示信息
+                    if (data.personalized && data.dominant_emotions) {
+                        const personalizationInfo = document.createElement('div');
+                        personalizationInfo.classList.add('personalization-info');
+                        personalizationInfo.innerHTML = `<i class="fas fa-info-circle"></i> 根据您的情绪历史（${data.dominant_emotions.join('、')}）推荐`;
+                        recommendationCards.appendChild(personalizationInfo);
+                    }
                     
                     // 显示产品
                     data.products.forEach(product => {
                         const card = createProductCard(product);
                         recommendationCards.appendChild(card);
                     });
+                    
+                    // 添加刷新按钮
+                    const refreshButton = document.createElement('button');
+                    refreshButton.classList.add('refresh-recommendations');
+                    refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i> 换一批';
+                    refreshButton.addEventListener('click', loadRecommendations);
+                    recommendationCards.appendChild(refreshButton);
                 } else {
                     console.error('获取产品数据失败:', data);
                     // 如果API请求失败，显示默认推荐
@@ -784,6 +811,9 @@ if (isBrowser) {
                 }
             })
             .catch(error => {
+                // 移除加载指示器
+                recommendationCards.innerHTML = '';
+                
                 console.error('获取产品数据出错:', error);
                 // 如果API请求出错，显示默认推荐
                 showDefaultRecommendations();
@@ -1153,6 +1183,60 @@ if (isBrowser) {
                 background-color: rgba(var(--primary-rgb), 0.05);
                 padding: 10px;
                 border-radius: 6px;
+            }
+
+            /* 添加加载指示器样式 */
+            .loading-indicator {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                width: 100%;
+                height: 100px;
+                color: var(--text-color);
+                font-size: 14px;
+            }
+            
+            .loading-indicator i {
+                margin-right: 8px;
+                color: var(--primary-color);
+            }
+            
+            .personalization-info {
+                width: 100%;
+                padding: 8px;
+                margin-bottom: 10px;
+                background-color: var(--card-bg);
+                border-radius: 8px;
+                font-size: 12px;
+                color: var(--text-color-secondary);
+                text-align: center;
+            }
+            
+            .personalization-info i {
+                color: var(--primary-color);
+                margin-right: 4px;
+            }
+            
+            .refresh-recommendations {
+                display: block;
+                width: 100%;
+                padding: 8px;
+                margin-top: 10px;
+                background-color: var(--card-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 8px;
+                color: var(--text-color);
+                font-size: 14px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            
+            .refresh-recommendations:hover {
+                background-color: var(--hover-color);
+            }
+            
+            .refresh-recommendations i {
+                margin-right: 4px;
             }
         `;
         document.head.appendChild(style);

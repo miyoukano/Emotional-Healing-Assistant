@@ -10,6 +10,7 @@ import os
 from werkzeug.utils import secure_filename
 import sys
 import logging
+from sqlalchemy.sql.expression import func
 
 api_bp = Blueprint('api', __name__)
 
@@ -241,6 +242,8 @@ def products():
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 10, type=int)
     emotion = request.args.get('emotion', None)
+    random = request.args.get('random', 'false').lower() == 'true'
+    personalized = request.args.get('personalized', 'false').lower() == 'true'
     
     query = AromaProduct.query
     
@@ -250,15 +253,95 @@ def products():
             product_emotions
         ).filter(product_emotions.c.emotion == emotion)
     
-    products = query.paginate(page=page, per_page=per_page)
-    
-    return jsonify({
-        'success': True,
-        'products': [product.to_dict() for product in products.items],
-        'total': products.total,
-        'pages': products.pages,
-        'current_page': products.page
-    })
+    if random:
+        if personalized and current_user.is_authenticated:
+            # 基于用户情绪历史的个性化推荐
+            try:
+                # 获取用户最近的情绪记录
+                recent_emotions = EmotionRecord.query.filter_by(
+                    user_id=current_user.id
+                ).order_by(EmotionRecord.timestamp.desc()).limit(20).all()
+                
+                if recent_emotions:
+                    # 统计情绪频率
+                    emotion_counts = {}
+                    for record in recent_emotions:
+                        emotion_counts[record.emotion] = emotion_counts.get(record.emotion, 0) + 1
+                    
+                    # 找出主要情绪
+                    dominant_emotions = sorted(
+                        [(e, c) for e, c in emotion_counts.items()],
+                        key=lambda x: x[1],
+                        reverse=True
+                    )[:2]  # 取前两个主要情绪
+                    
+                    # 如果有主要情绪，优先推荐与这些情绪相关的产品
+                    if dominant_emotions:
+                        # 获取与主要情绪相关的产品ID
+                        emotion_names = [e for e, _ in dominant_emotions]
+                        related_product_ids = db.session.query(product_emotions.c.product_id).filter(
+                            product_emotions.c.emotion.in_(emotion_names)
+                        ).distinct().all()
+                        related_product_ids = [id[0] for id in related_product_ids]
+                        
+                        # 如果找到了相关产品，随机选择其中的一部分
+                        if related_product_ids:
+                            # 确保至少有一半的产品与用户的主要情绪相关
+                            related_limit = max(per_page // 2, 1)
+                            other_limit = per_page - related_limit
+                            
+                            # 随机选择与主要情绪相关的产品
+                            related_products = AromaProduct.query.filter(
+                                AromaProduct.id.in_(related_product_ids)
+                            ).order_by(func.random()).limit(related_limit).all()
+                            
+                            # 随机选择其他产品
+                            if other_limit > 0:
+                                other_products = AromaProduct.query.filter(
+                                    ~AromaProduct.id.in_(related_product_ids)
+                                ).order_by(func.random()).limit(other_limit).all()
+                            else:
+                                other_products = []
+                            
+                            # 合并产品列表
+                            products_list = related_products + other_products
+                            
+                            return jsonify({
+                                'success': True,
+                                'products': [product.to_dict() for product in products_list],
+                                'total': len(products_list),
+                                'pages': 1,
+                                'current_page': 1,
+                                'personalized': True,
+                                'dominant_emotions': [e for e, _ in dominant_emotions]
+                            })
+            except Exception as e:
+                current_app.logger.error(f"个性化推荐出错: {str(e)}")
+                # 如果个性化推荐失败，回退到普通随机推荐
+        
+        # 随机获取产品
+        products_list = query.order_by(func.random()).limit(per_page).all()
+        
+        return jsonify({
+            'success': True,
+            'products': [product.to_dict() for product in products_list],
+            'total': len(products_list),
+            'pages': 1,
+            'current_page': 1,
+            'personalized': False
+        })
+    else:
+        # 分页获取产品
+        products_page = query.paginate(page=page, per_page=per_page)
+        
+        return jsonify({
+            'success': True,
+            'products': [product.to_dict() for product in products_page.items],
+            'total': products_page.total,
+            'pages': products_page.pages,
+            'current_page': products_page.page,
+            'personalized': False
+        })
 
 @api_bp.route('/products/<int:product_id>', methods=['GET'])
 def product_detail(product_id):
