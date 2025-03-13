@@ -1,7 +1,21 @@
 // 全局变量
+const MIN_TURNS_BEFORE_RECOMMEND = 7; // 至少经过多少轮对话后才推荐香薰
+let currentUser = null;
+let isLoggedIn = false;
+let currentEmotion = '平静';
 let currentPersona = 'empathetic';
-let currentEmotion = 'neutral'; // 当前情绪状态
-let isTyping = false;
+let dialogTurns = 0;
+let shouldRecommendAroma = false;
+let userPreferences = {
+    scents: [],
+    aromatherapy_types: [],
+    concerns: [],
+    preferences_collected: false
+};
+let isTyping = false; // 追踪"正在输入"状态
+let lastUserMessage = ""; // 记录最后一次用户发送的消息
+let lastAssistantReply = ""; // 记录最后一次助手的回复
+let hasAddedWelcomeMessage = false; // 跟踪是否已经添加了欢迎消息
 
 // 检查是否在浏览器环境中
 const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -25,10 +39,6 @@ if (isBrowser) {
     const closeProfileModal = document.getElementById('closeProfileModal');
     const avatarUpload = document.getElementById('avatarUpload');
     const profileSaveButton = document.querySelector('.profile-save-button');
-
-    // 用户状态
-    let isLoggedIn = false;
-    let currentUser = null;
 
     // 页面加载完成后初始化
     document.addEventListener('DOMContentLoaded', function () {
@@ -80,20 +90,48 @@ if (isBrowser) {
         loadRecommendations();
 
         // 检查登录状态
-        checkLoginStatus();
+        checkLoginStatus().then(() => {
+            // 验证用户登录后，加载聊天历史
+            if (isLoggedIn && currentUser) {
+                console.log('用户已登录，加载聊天历史...');
+                loadChatHistory();
+                
+                // 直接绑定用户菜单事件
+                bindUserMenuEvents();
+            } else {
+                // 未登录用户也加载聊天历史（可能有本地存储的历史）
+                // 如果没有历史记录，loadChatHistory会添加欢迎消息
+                console.log('用户未登录，尝试加载本地聊天历史...');
+                loadChatHistory();
+            }
+        });
 
         // 初始化聊天区域滚动
         scrollChatToBottom();
+        
+        // 初始化对话轮数和用户偏好
+        initDialogContext();
     }
 
     // 设置事件监听器
     function setupEventListeners() {
         // 发送消息
         sendButton.addEventListener('click', sendMessage);
-        messageInput.addEventListener('keypress', (e) => {
+        messageInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 sendMessage();
+            }
+        });
+
+        // 自动调整文本框高度
+        messageInput.addEventListener('input', autoResizeTextarea);
+
+        // 文本框聚焦时隐藏表情选择器
+        messageInput.addEventListener('focus', () => {
+            const emojiPicker = document.querySelector('.emoji-picker');
+            if (emojiPicker) {
+                emojiPicker.classList.remove('active');
             }
         });
 
@@ -203,26 +241,31 @@ if (isBrowser) {
         // 注册表单提交
         registerSubmit.addEventListener('click', handleRegister);
 
-        // 用户菜单切换
-        userMenuToggle.addEventListener('click', () => {
-            userMenu.classList.toggle('active');
-        });
+        // 用户菜单切换按钮事件
+        const userMenuToggle = document.querySelector('.user-menu-toggle');
+        if (userMenuToggle) {
+            // 确保移除任何现有事件监听器，防止重复
+            userMenuToggle.removeEventListener('click', toggleUserMenu);
+            // 添加新的事件监听器
+            userMenuToggle.addEventListener('click', toggleUserMenu);
+            console.log('用户菜单切换按钮事件监听器已添加');
+        }
 
-        // 用户菜单项点击
-        userMenu.querySelectorAll('li').forEach((item, index) => {
-            item.addEventListener('click', () => {
-                userMenu.classList.remove('active');
-
-                if (index === 0) { // 个人资料
-                    profileModal.classList.add('active');
-                } else if (index === 1) { // 设置
-                    // 设置功能待实现
-                    alert('设置功能即将上线');
-                } else if (index === 2) { // 退出登录
-                    handleLogout();
-                }
+        // 用户菜单项点击事件
+        const userMenu = document.querySelector('.user-menu');
+        if (userMenu) {
+            const menuItems = userMenu.querySelectorAll('li');
+            menuItems.forEach((item, index) => {
+                // 移除现有事件监听器
+                const clonedItem = item.cloneNode(true);
+                item.parentNode.replaceChild(clonedItem, item);
+                
+                // 添加新的事件监听器
+                clonedItem.addEventListener('click', function(e) {
+                    handleMenuItemClick(e, index);
             });
         });
+        }
 
         // 关闭个人资料模态框
         closeProfileModal.addEventListener('click', () => {
@@ -330,6 +373,65 @@ if (isBrowser) {
                 // 暂时没有特定事件需要重新绑定
             }
         });
+
+        // 为聊天输入框添加事件监听器
+        document.getElementById('messageInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+        
+        // 为发送按钮添加事件监听器
+        document.querySelector('.send-button').addEventListener('click', function() {
+            sendMessage();
+        });
+    }
+    
+    // 添加重置聊天的功能
+    function resetChat() {
+        // 确认对话框
+        if (confirm('确定要开始新的对话吗？这将清除当前对话记录。')) {
+            // 清空聊天区域
+            const chatMessages = document.getElementById('chatMessages');
+            chatMessages.innerHTML = '';
+            
+            // 重置对话轮数和状态
+            dialogTurns = 0;
+            shouldRecommendAroma = false;
+            
+            // 重置最后的用户消息和助手回复
+            lastUserMessage = "";
+            lastAssistantReply = "";
+            
+            // 重置用户偏好（保留已收集的偏好，但标记为未使用）
+            userPreferences = {
+                scents: [],
+                aromatherapy_types: [],
+                concerns: [],
+                preferences_collected: false
+            };
+            
+            // 保存重置后的对话上下文
+            saveDialogContext();
+            
+            // 重置欢迎消息标志
+            hasAddedWelcomeMessage = false;
+            
+            // 添加欢迎消息
+            const welcomeMessage = '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？';
+            addMessageToChat('assistant', welcomeMessage);
+            lastAssistantReply = welcomeMessage;
+            hasAddedWelcomeMessage = true;
+            
+            // 更新推荐区域
+            loadRecommendations();
+            
+            // 更新偏好显示
+            updatePreferencesDisplay();
+            
+            console.log("对话已重置，所有上下文变量已清空");
+        }
     }
 
     // 自动调整文本区域高度
@@ -346,6 +448,9 @@ if (isBrowser) {
         const message = messageInput.value.trim();
         
         if (message === '') return;
+        
+        // 记录当前用户消息
+        lastUserMessage = message;
         
         // 清空输入框
         messageInput.value = '';
@@ -371,6 +476,30 @@ if (isBrowser) {
         
         console.log('发送消息:', message, '情绪:', currentEmotion, '人设:', currentPersona);
         
+        // 增加对话轮数
+        dialogTurns++;
+        
+        // 检查是否应该推荐香薰 - 基于对话轮数的标准条件
+        if (dialogTurns >= MIN_TURNS_BEFORE_RECOMMEND && !shouldRecommendAroma) {
+            shouldRecommendAroma = true;
+        }
+        
+        // 检查用户是否表达了心情好转 - 新增的推荐条件
+        // 当用户表达感谢或心情好转时，即使对话轮数未达到标准，也可以推荐香薰
+        // 这是因为此时用户可能更愿意接受建议，推荐的接受度会更高
+        const moodImproved = checkMoodImprovement(message);
+        if (moodImproved && !shouldRecommendAroma) {
+            console.log('用户表达了心情好转，将推荐香薰，即使对话轮数未达到标准');
+            shouldRecommendAroma = true;
+        }
+        
+        // 保存对话上下文
+        saveDialogContext();
+        
+        // 提取并更新用户偏好
+        const extractedPreferences = extractUserPreferencesFromMessage(message);
+        updateUserPreferences(extractedPreferences);
+        
         // 发送消息到后端API
         fetch('/api/chat', {
             method: 'POST',
@@ -381,7 +510,10 @@ if (isBrowser) {
             body: JSON.stringify({
                 message: message,
                 emotion: currentEmotion,
-                persona: currentPersona
+                persona: currentPersona,
+                dialogTurns: dialogTurns,
+                shouldRecommendAroma: shouldRecommendAroma,
+                userPreferences: userPreferences
             })
         })
         .then(response => {
@@ -402,8 +534,36 @@ if (isBrowser) {
             removeTypingIndicator();
             
             if (data.success) {
+                // 检查是否有回复
+                if (data.reply) {
+                    // 验证回复是否重复或不相关
+                    if (isReplyDuplicate(data.reply)) {
+                        console.warn('检测到重复回复或不相关回复，生成替代回复');
+                        // 生成一个替代回复，确保上下文衔接
+                        const alternativeReply = generateAlternativeReply(lastUserMessage);
+                        // 添加替代回复到聊天区域
+                        addMessageToChat('assistant', alternativeReply);
+                        // 更新最后一次回复
+                        lastAssistantReply = alternativeReply;
+                    } else {
+                        // 检查回复是否与用户消息上下文相关
+                        const isRelevant = checkReplyRelevance(lastUserMessage, data.reply);
+                        
+                        if (!isRelevant) {
+                            console.warn('检测到回复与用户消息不够相关，生成替代回复');
+                            // 生成一个替代回复，确保上下文衔接
+                            const alternativeReply = generateAlternativeReply(lastUserMessage);
+                            // 添加替代回复到聊天区域
+                            addMessageToChat('assistant', alternativeReply);
+                            // 更新最后一次回复
+                            lastAssistantReply = alternativeReply;
+                        } else {
                 // 添加助手回复到聊天区域
                 addMessageToChat('assistant', data.reply);
+                            // 更新最后一次回复
+                            lastAssistantReply = data.reply;
+                        }
+                    }
                 
                 // 更新情绪显示
                 if (data.emotion) {
@@ -418,6 +578,20 @@ if (isBrowser) {
                 // 更新推荐
                 if (data.recommendations) {
                     updateRecommendations(data.recommendations);
+                } else if (shouldRecommendAroma) {
+                    // 如果应该推荐香薰但API没有返回推荐，则主动加载推荐
+                    loadRecommendations();
+                }
+                } else {
+                    // 没有收到回复，生成一个替代回复
+                    const alternativeReply = generateAlternativeReply(lastUserMessage);
+                    addMessageToChat('assistant', alternativeReply);
+                    lastAssistantReply = alternativeReply;
+                    
+                    // 如果用户表达了心情好转，加载推荐
+                    if (shouldRecommendAroma) {
+                        loadRecommendations();
+                    }
                 }
             } else {
                 // 显示错误消息
@@ -426,11 +600,14 @@ if (isBrowser) {
                     errorMessage = `抱歉，出现了问题: ${data.message}`;
                 }
                 addMessageToChat('assistant', errorMessage);
+                lastAssistantReply = errorMessage;
                 
                 // 如果用户消息已保存但助手回复保存失败，提示用户刷新页面
                 if (data.user_message_saved) {
                     setTimeout(() => {
-                        addMessageToChat('assistant', '您的消息已保存，但我的回复保存失败。刷新页面可能会看到完整对话。');
+                        const refreshMessage = '您的消息已保存，但我的回复保存失败。刷新页面可能会看到完整对话。';
+                        addMessageToChat('assistant', refreshMessage);
+                        lastAssistantReply = refreshMessage;
                     }, 1000);
                 }
             }
@@ -442,7 +619,9 @@ if (isBrowser) {
             removeTypingIndicator();
             
             // 显示错误消息
-            addMessageToChat('assistant', `抱歉，发生了错误: ${error.message || '网络连接问题'}。请检查您的网络连接并稍后再试。`);
+            const errorMessage = `抱歉，发生了错误: ${error.message || '网络连接问题'}。请检查您的网络连接并稍后再试。`;
+            addMessageToChat('assistant', errorMessage);
+            lastAssistantReply = errorMessage;
             
             // 添加重试按钮
             setTimeout(() => {
@@ -453,23 +632,286 @@ if (isBrowser) {
                         <p>您可以 <button class="retry-button">重试发送</button> 这条消息。</p>
                     </div>
                 `;
-                document.getElementById('chatMessages').appendChild(retryMessage);
                 
                 // 添加重试按钮点击事件
+                chatMessages.appendChild(retryMessage);
                 const retryButton = retryMessage.querySelector('.retry-button');
                 retryButton.addEventListener('click', () => {
                     // 移除重试消息
                     retryMessage.remove();
-                    
                     // 重新发送最后一条消息
-                    messageInput.value = message;
+                    messageInput.value = lastUserMessage;
                     sendMessage();
                 });
-                
-                // 滚动到底部
-                scrollChatToBottom();
-            }, 1000);
+            }, 2000);
         });
+    }
+
+    // 检查回复是否重复或不相关
+    function isReplyDuplicate(reply) {
+        // 如果与上一次回复完全相同，则认为是重复回复
+        if (reply === lastAssistantReply) {
+            console.log("检测到完全相同的回复");
+            return true;
+        }
+        
+        // 如果上一次回复为空，则不算重复
+        if (!lastAssistantReply) {
+            return false;
+        }
+        
+        // 计算回复的相似度
+        const similarity = calculateStringSimilarity(reply, lastAssistantReply);
+        console.log(`回复相似度: ${similarity.toFixed(2)}`);
+        
+        // 相似度超过阈值，认为是重复回复
+        if (similarity > 0.85) {
+            console.log("检测到高度相似的回复");
+            return true;
+        }
+        
+        // 检查回复是否缺乏上下文相关性的通用套话
+        const genericPhrases = [
+            "感谢你继续和我分享你的感受",
+            "通过我们的对话",
+            "你是一个非常有韧性的人",
+            "面对这些情况",
+            "你内心最希望得到什么样的支持",
+            "希望我的回答对你有所帮助",
+            "如果你有任何其他问题"
+        ];
+        
+        // 如果回复中包含通用套话且长度较短，可能是缺乏针对性的回复
+        if (reply.length < 100) {
+            for (const phrase of genericPhrases) {
+                if (reply.includes(phrase)) {
+                    console.log("检测到可能缺乏针对性的通用回复");
+                    return true;
+                }
+            }
+        }
+        
+        // 如果用户最后一条消息很具体，但回复很笼统，可能是不相关回复
+        const specificKeywords = ['考试', '学习', '焦虑', '紧张', '压力', '难过', '开心', '准备'];
+        let userHasSpecificContext = false;
+        
+        for (const keyword of specificKeywords) {
+            if (lastUserMessage.toLowerCase().includes(keyword)) {
+                userHasSpecificContext = true;
+                // 检查回复是否包含相同的关键词，确保上下文连贯
+                if (!reply.toLowerCase().includes(keyword)) {
+                    console.log(`用户提到了"${keyword}"，但回复中未包含相关内容，可能不够相关`);
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    // 计算两个字符串的相似度 (0-1之间，1表示完全相同)
+    function calculateStringSimilarity(str1, str2) {
+        // 如果两个字符串完全相同，直接返回1
+        if (str1 === str2) return 1.0;
+        
+        // 长度相差过大，直接判定为不相似
+        if (Math.max(str1.length, str2.length) > 3 * Math.min(str1.length, str2.length)) {
+            return 0.1; // 返回一个很小的相似度值
+        }
+        
+        // 转为小写并去除标点符号，分割成词组
+        const normalize = text => {
+            // 去除标点和特殊字符，转为小写
+            return text.toLowerCase()
+                .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "")
+                .replace(/\s{2,}/g, " ");
+        };
+        
+        const normalStr1 = normalize(str1);
+        const normalStr2 = normalize(str2);
+        
+        // 将文本分割成词组并去重
+        const words1 = new Set(normalStr1.split(/\s+/));
+        const words2 = new Set(normalStr2.split(/\s+/));
+        
+        // 计算Jaccard相似系数 (交集大小/并集大小)
+        const intersection = new Set([...words1].filter(x => words2.has(x)));
+        const union = new Set([...words1, ...words2]);
+        
+        // Jaccard系数
+        const jaccard = union.size === 0 ? 0 : intersection.size / union.size;
+        
+        // 检查两个字符串的长度比率
+        const lengthRatio = Math.min(str1.length, str2.length) / Math.max(str1.length, str2.length);
+        
+        // 计算结构相似性（通过检查两段文本中的段落结构、列表项目等）
+        let structureSimilarity = 0;
+        
+        // 检查是否都包含列表（数字列表或项目符号）
+        const hasList1 = /\d+\.|\*|\-\s/.test(str1);
+        const hasList2 = /\d+\.|\*|\-\s/.test(str2);
+        if (hasList1 === hasList2) structureSimilarity += 0.1;
+        
+        // 检查段落结构（通过换行符数量）
+        const paragraphs1 = str1.split('\n').filter(p => p.trim().length > 0);
+        const paragraphs2 = str2.split('\n').filter(p => p.trim().length > 0);
+        const paragraphRatio = Math.min(paragraphs1.length, paragraphs2.length) / 
+                              Math.max(paragraphs1.length, paragraphs2.length);
+        structureSimilarity += paragraphRatio * 0.1;
+        
+        // 检查问句数量（以？结尾的句子）
+        const questions1 = str1.split(/[。？！.?!]/).filter(s => s.trim().endsWith('？') || s.trim().endsWith('?')).length;
+        const questions2 = str2.split(/[。？！.?!]/).filter(s => s.trim().endsWith('？') || s.trim().endsWith('?')).length;
+        if (Math.abs(questions1 - questions2) <= 1) structureSimilarity += 0.1;
+        
+        // 检查特殊标记 (** 粗体, * 斜体, ` 代码等)的使用情况
+        const hasMarkers1 = /\*\*|\*|`/.test(str1);
+        const hasMarkers2 = /\*\*|\*|`/.test(str2);
+        if (hasMarkers1 === hasMarkers2) structureSimilarity += 0.1;
+        
+        // 检查是否都包含数字
+        const hasNumbers1 = /\d+/.test(str1);
+        const hasNumbers2 = /\d+/.test(str2);
+        if (hasNumbers1 === hasNumbers2) structureSimilarity += 0.05;
+        
+        // 关键词匹配
+        const keyPhrases = [
+            "深呼吸", "冥想", "放松", "焦虑", "压力", "睡眠", "运动", "规律",
+            "考试", "复习", "准备", "计划", "时间管理", "优先级", "效率",
+            "心情", "情绪", "感受", "支持", "帮助", "建议", "分享"
+        ];
+        
+        let keyPhraseMatches = 0;
+        let keyPhraseTotal = 0;
+        
+        for (const phrase of keyPhrases) {
+            const inStr1 = normalStr1.includes(phrase);
+            const inStr2 = normalStr2.includes(phrase);
+            
+            if (inStr1 || inStr2) {
+                keyPhraseTotal++;
+                if (inStr1 === inStr2) {
+                    keyPhraseMatches++;
+                }
+            }
+        }
+        
+        const keyPhraseScore = keyPhraseTotal === 0 ? 0 : keyPhraseMatches / keyPhraseTotal;
+        
+        // 综合评分：结合Jaccard系数、长度比率、结构相似性和关键词匹配
+        const finalScore = (jaccard * 0.5) + (lengthRatio * 0.1) + (structureSimilarity * 0.2) + (keyPhraseScore * 0.2);
+        
+        console.log(`相似度计算 - Jaccard: ${jaccard.toFixed(2)}, 长度比: ${lengthRatio.toFixed(2)}, 结构: ${structureSimilarity.toFixed(2)}, 关键词: ${keyPhraseScore.toFixed(2)}, 最终: ${finalScore.toFixed(2)}`);
+        
+        return Math.min(finalScore, 1.0);
+    }
+
+    // 生成替代回复
+    function generateAlternativeReply(userMessage) {
+        console.log("生成替代回复，基于用户消息:", userMessage);
+        
+        // 根据用户的消息生成上下文相关的回复
+        const lowerMessage = userMessage.toLowerCase();
+        
+        // 检查是否包含考试相关内容
+        if (lowerMessage.includes('考试') || lowerMessage.includes('复习') || lowerMessage.includes('准备')) {
+            if (lowerMessage.includes('准备不足') || lowerMessage.includes('没准备好') || 
+                lowerMessage.includes('不够') || lowerMessage.includes('一般般') || 
+                lowerMessage.includes('不懂') || lowerMessage.includes('无法') ||
+                lowerMessage.includes('来不及')) {
+                return `我理解考试前准备不足的感受确实很令人焦虑。即使时间有限，我们也可以做一些事情：
+
+1. **专注优先级**：确定最重要和分值最高的内容，优先复习这些部分
+2. **高效学习法**：使用闪卡、思维导图等方法快速掌握核心概念
+3. **寻求帮助**：向同学或老师请教不懂的问题，有时候一个关键解释可以解开很多疑惑
+4. **调整心态**：接受当前状况，集中精力做好能做的部分，而不是焦虑于无法改变的事实
+5. **制定应急计划**：为考试中可能遇到的困难情况做准备，如遇到不会的题目时如何应对
+
+距离考试还有多久？或许我们可以一起制定一个适合剩余时间的应急复习计划？`;
+            } else {
+                return `关于即将到来的考试，我能理解你的焦虑感。考试确实是一个压力较大的经历，但记住适度的紧张感实际上可以帮助你保持专注。
+
+以下是一些可能对你有帮助的建议：
+1. **划分重点**：确定考试的重点内容和难点，有针对性地复习
+2. **规划时间**：根据剩余时间，制定合理的复习计划，确保每个科目都得到足够关注
+3. **模拟测试**：尝试做一些模拟题或往年试题，熟悉考试形式和时间限制
+4. **健康作息**：保证充足的睡眠和适当的休息，避免过度疲劳影响学习效率
+5. **放松技巧**：学习一些简单的放松技巧，如深呼吸或短暂冥想，帮助缓解考试焦虑
+
+你最担心的是哪部分内容？我们可以一起想想如何针对性地解决这些问题。`;
+            }
+        }
+        // 检查是否包含焦虑相关内容
+        else if (lowerMessage.includes('焦虑') || lowerMessage.includes('担心') || 
+                 lowerMessage.includes('紧张') || lowerMessage.includes('压力')) {
+            return `我能理解你感到焦虑的心情。焦虑是一种常见的情绪反应，尤其是在面对压力或不确定性时。
+
+以下是一些可能帮助缓解焦虑的方法：
+1. **深呼吸练习**：慢慢吸气5秒，屏住2秒，然后缓慢呼气7秒，重复几次可以帮助身心放松
+2. **正念冥想**：尝试专注于当下的感受，而不评判它们，这可以帮助你与焦虑情绪保持一定距离
+3. **身体活动**：即使是简单的伸展或短暂的步行也能帮助释放紧张情绪
+4. **限制咖啡因摄入**：咖啡、茶和能量饮料可能会加重焦虑症状
+5. **充足休息**：确保有足够的睡眠和放松时间
+
+你能告诉我更多关于让你感到焦虑的具体情况吗？这样我可以提供更有针对性的建议。`;
+        }
+        // 检查是否包含情绪相关内容
+        else if (lowerMessage.includes('难过') || lowerMessage.includes('伤心') || 
+                 lowerMessage.includes('不开心') || lowerMessage.includes('失落')) {
+            return `听到你感到难过，我很理解这种感受。有时候情绪会让我们感到沉重，这是完全正常的。
+
+面对这些情绪，你可以尝试：
+1. **允许自己感受**：不要压抑情绪，给自己空间和时间去感受它们
+2. **温和对待自己**：就像对待一位正在经历困难的朋友一样对待自己
+3. **寻找支持**：与信任的朋友或家人分享你的感受
+4. **小小的愉悦活动**：做一些简单的、能让你感到一丝愉悦的事情
+5. **规律作息**：保持规律的生活节奏可以帮助稳定情绪
+
+你愿意分享是什么让你感到难过吗？或者有什么我可以帮助你的地方？`;
+        }
+        // 检查是否包含学业或工作压力相关内容
+        else if (lowerMessage.includes('学习') || lowerMessage.includes('工作') || 
+                 lowerMessage.includes('压力') || lowerMessage.includes('忙')) {
+            return `学习和工作的压力确实会让人感到焦虑和不堪重负。这种感受很常见，但也有方法可以帮助你更好地应对：
+
+1. **任务分解**：将大任务分解成小步骤，逐一完成，这样会减轻心理负担
+2. **优先级排序**：确定哪些任务最重要或最紧急，先处理这些任务
+3. **时间管理**：尝试番茄工作法（25分钟专注工作，5分钟休息）等技巧提高效率
+4. **设定界限**：学会说"不"，避免承担过多责任
+5. **寻求协助**：不要犹豫向同事、同学或导师寻求帮助
+
+你最近面临哪些具体的学习或工作挑战？或许我们可以一起想办法解决。`;
+        }
+        // 针对游戏开发和面试相关的替代回复
+        else if (lowerMessage.includes('面试') || lowerMessage.includes('工作')) {
+            if (lowerMessage.includes('网易') || lowerMessage.includes('实习')) {
+                return `看来你收到了网易游戏客户端开发实习岗的面试邀请，这真是个好消息！网易在游戏行业的地位不言而喻。面试前，我建议你可以：
+
+1. 熟悉网易主要游戏产品和技术栈（Unity/Unreal等）
+2. 复习图形渲染、游戏引擎架构、性能优化等核心知识点
+3. 准备1-2个你参与过的游戏项目案例，能够清晰地阐述你的贡献和解决的技术挑战
+4. 了解一些网易的游戏，比如《阴阳师》《第五人格》《梦幻西游》等热门产品
+
+你对面试中哪方面技术问题比较担心？或者你想重点准备哪些方面？`;
+            } else {
+                return `恭喜你收到面试邀请！作为游戏客户端开发者，这是展示你技能的好机会。
+
+游戏客户端面试通常会关注这些方面：
+1. 编程基础与数据结构
+2. 图形学与渲染管线知识
+3. 游戏引擎使用经验（Unity/Unreal等）
+4. 性能优化技巧
+5. 项目经验与解决问题的能力
+
+你已经有什么准备了吗？或者有特定的技术领域需要重点复习？`;
+            }
+        }
+        // 通用回复，尝试基于用户最后一条消息提供相关的回应
+        else {
+            return `我注意到你提到了"${userMessage.substring(0, Math.min(20, userMessage.length))}..."。能否告诉我更多关于这方面的情况？我很想了解你的想法和感受，这样我才能提供更有针对性的支持。
+
+有时候，与他人分享我们的想法和经历可以帮助我们更好地理解自己的情绪。无论你想讨论什么，我都在这里倾听和支持你。`;
+        }
     }
 
     // 添加消息到聊天
@@ -762,6 +1204,30 @@ if (isBrowser) {
 
     // 加载推荐
     function loadRecommendations() {
+        // 判断是否应该显示推荐
+        // 有两种情况会显示推荐：
+        // 1. 对话轮数达到MIN_TURNS_BEFORE_RECOMMEND（默认7轮）
+        // 2. 用户表达了心情好转（通过shouldRecommendAroma标志判断）
+        if (!shouldRecommendAroma && dialogTurns < MIN_TURNS_BEFORE_RECOMMEND) {
+            const recommendationsContainer = document.querySelector('.recommendation-cards');
+            recommendationsContainer.innerHTML = '';
+            
+            const placeholder = document.createElement('div');
+            placeholder.className = 'recommendation-placeholder';
+            
+            // 根据对话轮数提供不同的提示信息
+            if (dialogTurns === 0) {
+                placeholder.textContent = '我是你的情感助手，让我们先聊聊你的感受...';
+            } else if (dialogTurns < 3) {
+                placeholder.textContent = '继续交流，我希望能更好地了解你的情况...';
+            } else {
+                placeholder.textContent = `再聊${MIN_TURNS_BEFORE_RECOMMEND - dialogTurns}轮后，我会为你推荐合适的香薰产品...`;
+            }
+            
+            recommendationsContainer.appendChild(placeholder);
+            return;
+        }
+        
         recommendationCards.innerHTML = '';
         
         // 添加加载指示器
@@ -850,12 +1316,22 @@ if (isBrowser) {
 
     // 更新推荐
     function updateRecommendations(recommendations) {
-        recommendationCards.innerHTML = '';
+        const recommendationsContainer = document.querySelector('.recommendation-cards');
+        recommendationsContainer.innerHTML = '';
 
+        // 只有当应该推荐香薰时才显示推荐
+        if (shouldRecommendAroma) {
         recommendations.forEach(product => {
             const card = createProductCard(product);
-            recommendationCards.appendChild(card);
-        });
+                recommendationsContainer.appendChild(card);
+            });
+        } else {
+            // 显示占位符或提示信息
+            const placeholder = document.createElement('div');
+            placeholder.className = 'recommendation-placeholder';
+            placeholder.textContent = '与助手多聊聊，了解你的需求后将为你推荐合适的香薰产品...';
+            recommendationsContainer.appendChild(placeholder);
+        }
     }
 
     // 创建产品卡片
@@ -1126,30 +1602,21 @@ if (isBrowser) {
                     function extractPossibleComponents(product) {
                         try {
                             const possibleComponents = [];
-                            // 为每个提取的成分存储其匹配分数
-                            const componentScores = {};
                             const allComponents = Object.keys(aromaComponentLibrary);
                             
-                            // 扩展别名词典，增加更多变体
+                            // 首先，提前定义一些常见的其他可能表达方式和简写
                             const componentAliases = {
-                                '薰衣草': ['lavender', '薰草', '熏衣草', '紫花薰衣草', '薰衣', 'LAV', '法国薰衣草', '真正薰衣草', '狭叶薰衣草'],
-                                '柠檬': ['柠', 'lemon', '柑', '清柠', '柠檬香', '柠檬精华', '柠檬香气', '柠檬皮', '意大利柠檬', '黄柠檬'],
-                                '佛手柑': ['佛手', '香柑', 'bergamot', '柑橘精油', '佛手柑香', '柠檬佛手柑', '佛手柑皮', '佛手柑果', 'BERG'],
-                                '茉莉花': ['茉莉', 'jasmine', '花香', '茉莉香', '茉莉精油', '白茉莉', '大花茉莉', '茉莉香气', 'JAS'],
-                                '薄荷': ['mint', '薄荷精油', '薄荷醇', '清薄荷', '胡椒薄荷', '野薄荷', '留兰香', '绿薄荷', '薄荷叶', 'MINT'],
-                                '檀香': ['檀香木', 'sandalwood', '白檀', '檀香精油', '印度檀香', '澳洲檀香', '檀木', '檀香粉', 'SNDL'],
-                                '玫瑰': ['rose', '玫瑰精油', '玫瑰花', '玫瑰香', '大马士革玫瑰', '保加利亚玫瑰', '玫瑰花瓣', '玫瑰水', 'ROSE'],
-                                '洋甘菊': ['甘菊', 'chamomile', '菊花精油', '德国洋甘菊', '罗马洋甘菊', '蓝色洋甘菊', '甘菊花', 'CHAM'],
-                                '柑橘': ['橙', '柑', '橘', 'citrus', '柑橘精油', '橙花', '甜橙', '橘皮', '柑橘类', '甜橙油', '佛手柑'],
-                                '杉木': ['杉', '松', 'cedar', 'pine', '松木', '雪松', '冷杉', '红雪松', '杉木油', '松针油', '香柏'],
-                                '乳香': ['frankincense', '乳香精油', '香薰乳香', '乳香树脂', '印度乳香', '阿拉伯乳香', 'FRNK', '乳香油'],
-                                '柏木': ['柏', 'cypress', '柏树', '柏木精油', '地中海柏木', '日本扁柏', '香柏木'],
-                                '依兰': ['ylang', '依兰依兰', '依兰花', '依兰精油', '依兰香气', 'ylang-ylang'],
-                                '葡萄柚': ['grapefruit', '西柚', '葡萄柚精油', '红葡萄柚', '白西柚'],
-                                '天竺葵': ['geranium', '天竺葵精油', '玫瑰天竺葵', '香叶天竺葵'],
-                                '肉桂': ['cinnamon', '桂皮', '肉桂精油', '锡兰肉桂', '中国肉桂'],
-                                '迷迭香': ['rosemary', '迷迭香精油', '迷迭香叶', '迷迭香香气'],
-                                '香根草': ['vetiver', '岩兰草', '香根草精油', '香根草根']
+                                '薰衣草': ['lavender', '薰草', '熏衣草', '紫花薰衣草'],
+                                '柠檬': ['柠', 'lemon', '柑', '清柠'],
+                                '佛手柑': ['佛手', '香柑', 'bergamot', '柑橘精油'],
+                                '茉莉花': ['茉莉', 'jasmine', '花香'],
+                                '薄荷': ['mint', '薄荷精油', '薄荷醇', '清薄荷'],
+                                '檀香': ['檀香木', 'sandalwood', '白檀'],
+                                '玫瑰': ['rose', '玫瑰精油', '玫瑰花'],
+                                '洋甘菊': ['甘菊', 'chamomile', '菊花精油'],
+                                '柑橘': ['橙', '柑', '橘', 'citrus', '柑橘精油', '橙花'],
+                                '杉木': ['杉', '松', 'cedar', 'pine', '松木'],
+                                '乳香': ['frankincense', '乳香精油', '香薰乳香']
                             };
                             
                             // 创建一个包含所有别名和原始成分的映射
@@ -1172,181 +1639,78 @@ if (isBrowser) {
                             // 按长度降序排序搜索术语，以确保优先匹配较长的术语
                             allSearchTerms.sort((a, b) => b.length - a.length);
                             
-                            // 拆分产品信息，允许对不同字段给予不同权重
-                            const productName = product.name || '';
-                            const productDesc = product.description || '';
-                            const productFullDesc = product.full_description || '';
+                            // 检查产品信息中是否包含已知成分或其别名
+                            const productTexts = [
+                                product.name || '',
+                                product.description || '',
+                                product.full_description || ''
+                            ].join(' ');
                             
-                            // 函数：通过关键词搜索提取成分
-                            function extractComponentsByKeywords(text, weightFactor = 1) {
-                                if (!text) return;
-                                
-                                const textLower = text.toLowerCase();
-                                
-                                // 精确匹配 - 有最高权重
-                                for (const term of allSearchTerms) {
-                                    // 构建正则表达式，检查词边界
-                                    const regex = new RegExp(`(^|[^\\p{L}])${term}([^\\p{L}]|$)`, 'iu');
-                                    if (regex.test(text) || text.includes(term)) {
-                                        const mappedComponent = aliasMapping[term] || term;
-                                        
-                                        // 如果是有效成分
-                                        if (aromaComponentLibrary[mappedComponent]) {
-                                            // 计算匹配分数 (更长的词和精确匹配有更高权重)
-                                            const score = (term.length * 2) * weightFactor;
-                                            
-                                            if (!componentScores[mappedComponent]) {
-                                                componentScores[mappedComponent] = 0;
-                                            }
-                                            componentScores[mappedComponent] += score;
-                                            
-                                            // 添加到可能成分列表，但避免重复
-                                            if (!possibleComponents.includes(mappedComponent)) {
-                                                possibleComponents.push(mappedComponent);
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                // 语境分析 - 寻找成分相关语境线索
-                                const contextClues = {
-                                    '香气': 3,
-                                    '精油': 3,
-                                    '香薰': 3,
-                                    '提取': 2,
-                                    '芳香': 2,
-                                    '成分': 2,
-                                    '香味': 2,
-                                    '含有': 1.5,
-                                    '混合': 1.5,
-                                    '融合': 1.5
-                                };
-                                
-                                // 检查是否有语境线索，增加关联成分的权重
-                                for (const [clue, clueWeight] of Object.entries(contextClues)) {
-                                    if (textLower.includes(clue)) {
-                                        // 如果文本包含语境线索，增加已识别成分的权重
-                                        for (const component in componentScores) {
-                                            componentScores[component] *= clueWeight;
-                                        }
+                            for (const term of allSearchTerms) {
+                                if (productTexts.includes(term)) {
+                                    // 如果找到了别名，使用它对应的原始成分
+                                    const mappedComponent = aliasMapping[term] || term;
+                                    // 避免重复添加同一成分
+                                    if (!possibleComponents.includes(mappedComponent) && aromaComponentLibrary[mappedComponent]) {
+                                        possibleComponents.push(mappedComponent);
                                     }
                                 }
                             }
                             
-                            // 对产品名称赋予最高权重（5倍）
-                            extractComponentsByKeywords(productName, 5);
-                            
-                            // 对产品描述赋予中等权重（3倍）
-                            extractComponentsByKeywords(productDesc, 3);
-                            
-                            // 对完整描述赋予标准权重
-                            extractComponentsByKeywords(productFullDesc, 1);
-                            
-                            // 如果没有找到任何成分，尝试基于关键词提示进行猜测
+                            // 如果没有找到任何成分，进行一个更宽松的搜索
                             if (possibleComponents.length === 0) {
-                                // 关键词映射到可能的成分
-                                const keywordComponentMapping = {
-                                    '放松': ['薰衣草', '洋甘菊'],
-                                    '睡眠': ['薰衣草', '洋甘菊', '檀香'],
-                                    '助眠': ['薰衣草', '洋甘菊', '柏木'],
-                                    '镇静': ['薰衣草', '洋甘菊', '乳香'],
-                                    '宁神': ['薰衣草', '檀香', '乳香'],
-                                    
-                                    '提神': ['薄荷', '柠檬', '葡萄柚'],
-                                    '振奋': ['柠檬', '柑橘', '薄荷'],
-                                    '清新': ['薄荷', '柠檬', '柑橘', '依兰'],
-                                    '醒脑': ['薄荷', '迷迭香', '柠檬'],
-                                    '集中': ['薄荷', '迷迭香', '柠檬'],
-                                    
-                                    '平静': ['檀香', '乳香', '洋甘菊'],
-                                    '冥想': ['檀香', '乳香', '柏木'],
-                                    '宁静': ['檀香', '乳香', '薰衣草'],
-                                    '安抚': ['洋甘菊', '薰衣草', '乳香'],
-                                    
-                                    '愉悦': ['柑橘', '茉莉花', '依兰'],
-                                    '快乐': ['柑橘', '柠檬', '葡萄柚'],
-                                    '开心': ['柑橘', '柠檬', '茉莉花'],
-                                    '喜悦': ['柑橘', '依兰', '天竺葵'],
-                                    '乐观': ['柑橘', '柠檬', '依兰'],
-                                    
-                                    '舒缓': ['玫瑰', '佛手柑', '薰衣草'],
-                                    '抚慰': ['玫瑰', '佛手柑', '洋甘菊'],
-                                    '情感': ['玫瑰', '茉莉花', '依兰'],
-                                    '浪漫': ['玫瑰', '茉莉花', '依兰'],
-                                    '温暖': ['玫瑰', '肉桂', '天竺葵'],
-                                    
-                                    '清凉': ['薄荷', '柠檬', '杉木'],
-                                    '森林': ['杉木', '柏木', '香根草'],
-                                    '木质': ['檀香', '杉木', '柏木'],
-                                    '花香': ['玫瑰', '茉莉花', '依兰'],
-                                    '柑橘': ['柠檬', '柑橘', '葡萄柚'],
-                                    '草本': ['薄荷', '迷迭香', '洋甘菊'],
-                                    '东方': ['檀香', '乳香', '香根草']
-                                };
+                                // 检查产品名称中是否有关键词暗示成分
+                                const productLower = productTexts.toLowerCase();
                                 
-                                // 合并所有文本进行关键词搜索
-                                const combinedText = (productName + ' ' + productDesc + ' ' + productFullDesc).toLowerCase();
-                                
-                                // 检查关键词并分配相应的成分
-                                for (const [keyword, components] of Object.entries(keywordComponentMapping)) {
-                                    if (combinedText.includes(keyword)) {
-                                        // 将这些成分添加到可能的成分中，同时记录一个低分数
-                                        components.forEach((component, index) => {
-                                            // 分配递减的分数 (第一个有最高权重)
-                                            const score = (3 - Math.min(index, 2)) * 2;
-                                            
-                                            if (!componentScores[component]) {
-                                                componentScores[component] = 0;
-                                            }
-                                            componentScores[component] += score;
-                                            
-                                            if (!possibleComponents.includes(component)) {
-                                                possibleComponents.push(component);
-                                            }
-                                        });
-                                    }
+                                // 根据产品名称关键词猜测可能的成分
+                                if (productLower.includes('放松') || productLower.includes('睡眠') || productLower.includes('助眠')) {
+                                    possibleComponents.push('薰衣草');
+                                    possibleComponents.push('洋甘菊');
+                                }
+                                else if (productLower.includes('提神') || productLower.includes('振奋') || productLower.includes('清新')) {
+                                    possibleComponents.push('薄荷');
+                                    possibleComponents.push('柠檬');
+                                }
+                                else if (productLower.includes('平静') || productLower.includes('冥想') || productLower.includes('宁神')) {
+                                    possibleComponents.push('檀香');
+                                    possibleComponents.push('乳香');
+                                }
+                                else if (productLower.includes('愉悦') || productLower.includes('快乐') || productLower.includes('开心')) {
+                                    possibleComponents.push('柑橘');
+                                    possibleComponents.push('茉莉花');
+                                }
+                                else if (productLower.includes('舒缓') || productLower.includes('抚慰') || productLower.includes('情感')) {
+                                    possibleComponents.push('玫瑰');
+                                    possibleComponents.push('佛手柑');
                                 }
                             }
                             
-                            // 如果仍然没有找到任何成分，基于情绪类型推荐成分
+                            // 如果仍然没有找到任何成分，根据情绪类型推荐合适的成分
                             if (possibleComponents.length === 0 && product.emotions && product.emotions.length > 0) {
                                 const emotion = product.emotions[0];
                                 const normalizedEmotion = normalizeEmotionKey(emotion);
-                                
-                                // 为每种情绪提供更多样化的成分选择
-                                const emotionComponentMap = {
-                                    '快乐': ['柑橘', '柠檬', '葡萄柚', '依兰', '茉莉花'],
-                                    '悲伤': ['薰衣草', '玫瑰', '洋甘菊', '乳香', '檀香'],
-                                    '愤怒': ['佛手柑', '薄荷', '柏木', '洋甘菊', '薰衣草'],
-                                    '焦虑': ['薰衣草', '洋甘菊', '乳香', '佛手柑', '檀香'],
-                                    '疲惫': ['薄荷', '柠檬', '迷迭香', '葡萄柚', '柑橘'],
-                                    '平静': ['檀香', '乳香', '薰衣草', '洋甘菊', '柏木']
-                                };
-                                
-                                // 获取当前情绪的推荐成分列表
-                                const recommendedComponents = emotionComponentMap[normalizedEmotion] || ['薰衣草', '佛手柑'];
-                                
-                                // 随机选择2个成分（避免每次都是同样的组合）
-                                const shuffled = [...recommendedComponents].sort(() => 0.5 - Math.random());
-                                return shuffled.slice(0, 2);
-                            } else if (possibleComponents.length === 0) {
-                                // 完全无法确定成分时的默认值
-                                return ['薰衣草', '佛手柑']; 
-                            }
-                            
-                            // 如果找到了可能的成分，根据分数排序
-                            if (possibleComponents.length > 0) {
-                                possibleComponents.sort((a, b) => componentScores[b] - componentScores[a]);
-                                
-                                if (DEBUG_MODE) {
-                                    console.log('成分分数:', componentScores);
+                                switch(normalizedEmotion) {
+                                    case '快乐': 
+                                        return ['柑橘', '柠檬'];
+                                    case '悲伤': 
+                                        return ['薰衣草', '玫瑰'];
+                                    case '愤怒': 
+                                        return ['佛手柑', '薄荷'];
+                                    case '焦虑': 
+                                        return ['薰衣草', '洋甘菊'];
+                                    case '疲惫': 
+                                        return ['薄荷', '柠檬'];
+                                    case '平静':
+                                        return ['檀香', '乳香'];
+                                    default:
+                                        return ['薰衣草', '佛手柑']; // 通用成分
                                 }
-                                
-                                // 最多返回两种分数最高的成分
-                                return possibleComponents.slice(0, 2);
+                            } else if (possibleComponents.length === 0) {
+                                return ['薰衣草', '佛手柑']; // 通用成分
                             }
                             
-                            return ['薰衣草', '佛手柑']; // 兜底方案
+                            // 最多返回两种成分
+                            return possibleComponents.slice(0, 2);
                         } catch (error) {
                             console.error('提取香薰成分时出错:', error);
                             return ['薰衣草'];  // 出错时返回最安全的默认成分
@@ -1368,23 +1732,23 @@ if (isBrowser) {
                     // 添加当前情绪的效果说明
                     if (productData.emotions && productData.emotions.length > 0) {
                         // 创建单个合并的效果项
-                        const effectItem = document.createElement('div');
-                        effectItem.classList.add('effect-item');
-                        
+                            const effectItem = document.createElement('div');
+                            effectItem.classList.add('effect-item');
+                            
                         // 提取所有情绪
                         const emotionNames = productData.emotions.map(emotion => {
                             return normalizeEmotionKey(emotion);
                         });
                         
                         // 情绪名称部分
-                        const emotionName = document.createElement('span');
-                        emotionName.classList.add('emotion-name');
+                            const emotionName = document.createElement('span');
+                            emotionName.classList.add('emotion-name');
                         
                         // 连接所有情绪名称
                         emotionName.textContent = emotionNames.join('、') + ': ';
-                        
-                        const effectDesc = document.createElement('span');
-                        effectDesc.classList.add('effect-desc');
+                            
+                            const effectDesc = document.createElement('span');
+                            effectDesc.classList.add('effect-desc');
                         
                         // 生成合并的效果描述
                         let descriptionText = '';
@@ -1512,15 +1876,17 @@ if (isBrowser) {
                                 effectDesc.appendChild(document.createElement('br'));
                             }
                         }
-                        
-                        effectItem.appendChild(emotionName);
-                        effectItem.appendChild(effectDesc);
+                            
+                            effectItem.appendChild(emotionName);
+                            effectItem.appendChild(effectDesc);
                         emotionEffectsContainer.appendChild(effectItem);
-                        
+                            
                         // 如果当前情绪包含在产品支持的情绪中，添加高亮
                         if (currentEmotion && emotionNames.includes(currentEmotion)) {
-                            effectItem.classList.add('current-emotion');
-                            // 不再添加推荐理由
+                            // 如果不是"平静"情绪，才添加高亮效果
+                            if (normalizeEmotionKey(currentEmotion) !== '平静') {
+                                effectItem.classList.add('current-emotion');
+                            }
                         }
                     }
                     
@@ -1786,6 +2152,7 @@ if (isBrowser) {
 
     // 检查登录状态
     function checkLoginStatus() {
+        return new Promise((resolve, reject) => {
         // 从后端API获取当前用户信息
         fetch('/api/user/profile')
             .then(response => {
@@ -1793,6 +2160,7 @@ if (isBrowser) {
                     // 未登录
                     isLoggedIn = false;
                     currentUser = null;
+                        resolve(false);
                     return;
                 }
                 return response.json();
@@ -1803,10 +2171,15 @@ if (isBrowser) {
                     currentUser = data.user;
                     isLoggedIn = true;
                     updateUIForLoggedInUser();
+                        resolve(true);
+                    } else if (data) {
+                        resolve(false);
                 }
             })
             .catch(error => {
                 console.error('检查登录状态失败:', error);
+                    resolve(false);
+                });
             });
     }
 
@@ -1923,32 +2296,8 @@ if (isBrowser) {
                 });
             }
             
-            // 直接绑定用户菜单交互事件
-            setTimeout(function() {
-                // 为用户菜单切换按钮添加点击事件
-                const userMenuToggle = document.querySelector('.user-menu-toggle');
-                const userMenu = document.querySelector('.user-menu');
-                
-                if (userMenuToggle && userMenu) {
-                    // 移除已有的事件监听器
-                    userMenuToggle.removeEventListener('click', toggleUserMenu);
-                    
-                    // 添加新的事件监听器
-                    userMenuToggle.addEventListener('click', toggleUserMenu);
-                    
-                    // 为菜单项添加点击事件
-                    const menuItems = userMenu.querySelectorAll('li');
-                    menuItems.forEach((item, index) => {
-                        // 移除已有的事件监听器
-                        item.removeEventListener('click', handleMenuItemClick);
-                        
-                        // 添加新的事件监听器，使用闭包保存index
-                        item.addEventListener('click', function(e) {
-                            handleMenuItemClick(e, index);
-                        });
-                    });
-                }
-            }, 100);
+            // 绑定用户菜单事件
+            bindUserMenuEvents();
             
             // 加载用户的人设偏好
             loadUserPersona();
@@ -2004,6 +2353,13 @@ if (isBrowser) {
                     sortedMessages.forEach(msg => {
                         const sender = msg.is_user ? 'user' : 'assistant';
                         addMessageToChat(sender, msg.content, false); // 不滚动到底部
+                        
+                        // 记录最后一次的用户消息和助手回复
+                        if (msg.is_user) {
+                            lastUserMessage = msg.content;
+                        } else {
+                            lastAssistantReply = msg.content;
+                        }
                     });
                     
                     // 更新所有助手消息的头像
@@ -2024,16 +2380,62 @@ if (isBrowser) {
                             changePersona(lastMessage.persona);
                         }
                     }
+                    
+                    // 更新对话轮数
+                    dialogTurns = Math.floor(data.messages.length / 2); // 一问一答算一轮
+                    console.log(`加载了 ${dialogTurns} 轮对话历史，最后的用户消息: "${lastUserMessage}", 最后的助手回复: "${lastAssistantReply}"`);
+                    
+                    // 如果对话轮数达到阈值，设置推荐标志
+                    if (dialogTurns >= MIN_TURNS_BEFORE_RECOMMEND) {
+                        shouldRecommendAroma = true;
+                    }
+                    
+                    // 从服务器获取用户偏好
+                    if (data.userPreferences) {
+                        userPreferences = data.userPreferences;
+                        
+                        // 检查转换格式，确保结构一致
+                        if (!userPreferences.scents && userPreferences.aromas) {
+                            userPreferences.scents = userPreferences.aromas;
+                        }
+                        
+                        if (!userPreferences.aromatherapy_types && userPreferences.types) {
+                            userPreferences.aromatherapy_types = userPreferences.types;
+                        }
+                        
+                        // 确保所有必要的字段都存在
+                        userPreferences.scents = userPreferences.scents || [];
+                        userPreferences.aromatherapy_types = userPreferences.aromatherapy_types || [];
+                        userPreferences.concerns = userPreferences.concerns || [];
+                        userPreferences.preferences_collected = userPreferences.preferences_collected || 
+                            (userPreferences.scents.length > 0 || userPreferences.aromatherapy_types.length > 0);
+                    }
+                    
+                    // 保存对话上下文并更新偏好显示
+                    saveDialogContext();
+                    
+                    // 加载推荐区域
+                    loadRecommendations();
                 } else {
                     console.log('没有聊天历史或加载失败');
-                    // 添加欢迎消息
-                    addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
+                    // 检查是否已经添加了欢迎消息
+                    if (!hasAddedWelcomeMessage) {
+                        // 添加欢迎消息
+                        addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
+                        lastAssistantReply = '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？';
+                        hasAddedWelcomeMessage = true;
+                    }
                 }
             })
             .catch(error => {
                 console.error('加载聊天历史错误:', error);
-                // 添加欢迎消息
-                addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
+                // 检查是否已经添加了欢迎消息
+                if (!hasAddedWelcomeMessage) {
+                    // 添加欢迎消息
+                    addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
+                    lastAssistantReply = '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？';
+                    hasAddedWelcomeMessage = true;
+                }
             });
     }
     
@@ -2080,28 +2482,47 @@ if (isBrowser) {
 
     // 切换用户菜单显示/隐藏
     function toggleUserMenu(e) {
-        e.stopPropagation();
+        if (e) {
         e.preventDefault();
+            e.stopPropagation(); // 阻止事件冒泡
+        }
+        console.log('切换用户菜单');
         const userMenu = document.querySelector('.user-menu');
         if (userMenu) {
-            userMenu.classList.toggle('active');
-            console.log('用户菜单切换 (app.js)');
+            // 直接切换显示状态，不使用class
+            if (userMenu.style.display === 'block') {
+                userMenu.style.display = 'none';
+            } else {
+                userMenu.style.display = 'block';
+                
+                // 添加点击外部区域关闭菜单的事件
+                setTimeout(() => {
+                    document.addEventListener('click', function closeMenu(event) {
+                        const userMenuToggle = document.querySelector('.user-menu-toggle');
+                        if (!userMenu.contains(event.target) && !userMenuToggle.contains(event.target)) {
+                            userMenu.style.display = 'none';
+                            document.removeEventListener('click', closeMenu);
+                        }
+                    });
+                }, 10);
+            }
         }
     }
 
     // 处理菜单项点击
     function handleMenuItemClick(e, index) {
+        if (e) {
+            e.preventDefault();
         e.stopPropagation();
+        }
         const userMenu = document.querySelector('.user-menu');
         if (userMenu) {
-            userMenu.classList.remove('active');
+            userMenu.style.display = 'none';
         }
 
         if (index === 0) { // 个人资料
             openModal('profileModal');
-        } else if (index === 1) { // 设置
-            alert('设置功能即将上线');
-        } else if (index === 2) { // 退出登录
+        } else if (index === 1) { // 退出登录
             handleLogout();
         }
     }
@@ -2446,5 +2867,374 @@ if (isBrowser) {
         
         // 返回映射后的标准情绪，如果没有找到则返回原始值
         return emotionMapping[emotion] || emotion;
+    }
+
+    // 添加初始化对话上下文的函数
+    function initDialogContext() {
+        // 从localStorage获取持久化的对话上下文
+        const savedContext = localStorage.getItem('dialogContext');
+        if (savedContext) {
+            try {
+                const context = JSON.parse(savedContext);
+                dialogTurns = context.dialogTurns || 0;
+                userPreferences = context.userPreferences || {
+                    scents: [],
+                    aromatherapy_types: [],
+                    concerns: [],
+                    preferences_collected: false
+                };
+                shouldRecommendAroma = context.shouldRecommendAroma || false;
+            } catch (e) {
+                console.error('解析对话上下文失败:', e);
+                resetDialogContext();
+            }
+        } else {
+            resetDialogContext();
+        }
+    }
+
+    // 添加重置对话上下文的函数
+    function resetDialogContext() {
+        dialogTurns = 0;
+        userPreferences = {
+            scents: [],
+            aromatherapy_types: [],
+            concerns: [],
+            preferences_collected: false
+        };
+        shouldRecommendAroma = false;
+        saveDialogContext();
+    }
+
+    // 添加保存对话上下文的函数
+    function saveDialogContext() {
+        const context = {
+            dialogTurns,
+            userPreferences,
+            shouldRecommendAroma
+        };
+        localStorage.setItem('dialogContext', JSON.stringify(context));
+        
+        // 更新偏好显示
+        updatePreferencesDisplay();
+    }
+
+    // 添加识别用户偏好的函数
+    function extractUserPreferencesFromMessage(message) {
+        // 香气类型关键词
+        const scentKeywords = {
+            '花香': ['花香', '玫瑰', '茉莉', '薰衣草', '花香调', '花香型'],
+            '柑橘香': ['柑橘', '柠檬', '橙子', '柚子', '青柠', '柑橘香', '水果香'],
+            '木质香': ['木质', '檀香', '雪松', '木质香', '檀木'],
+            '草本香': ['草本', '迷迭香', '薄荷', '尤加利', '草药', '草本香'],
+            '东方香': ['东方', '琥珀', '香草', '麝香', '辛香料'],
+            '海洋香': ['海洋', '清新', '水生', '海盐']
+        };
+        
+        // 香薰类型关键词
+        const aromatherapyTypes = {
+            '精油': ['精油', '香精油'],
+            '香薰蜡烛': ['蜡烛', '香薰蜡烛', '香氛蜡烛'],
+            '扩香器': ['扩香', '扩香器', '香薰机', '加湿器'],
+            '香薰棒': ['香薰棒', '藤条', '香氛棒'],
+            '香水': ['香水', '香氛水']
+        };
+        
+        // 提取到的偏好
+        let detectedScents = [];
+        let detectedTypes = [];
+        
+        // 识别香气偏好
+        for (const [scent, keywords] of Object.entries(scentKeywords)) {
+            for (const keyword of keywords) {
+                if (message.includes(keyword)) {
+                    detectedScents.push(scent);
+                    break;  // 找到一个关键词后跳出内循环
+                }
+            }
+        }
+        
+        // 识别香薰类型偏好
+        for (const [type, keywords] of Object.entries(aromatherapyTypes)) {
+            for (const keyword of keywords) {
+                if (message.includes(keyword)) {
+                    detectedTypes.push(type);
+                    break;  // 找到一个关键词后跳出内循环
+                }
+            }
+        }
+        
+        // 去重
+        detectedScents = [...new Set(detectedScents)];
+        detectedTypes = [...new Set(detectedTypes)];
+        
+        return {
+            scents: detectedScents,
+            aromatherapy_types: detectedTypes
+        };
+    }
+
+    // 更新用户偏好
+    function updateUserPreferences(extractedPreferences) {
+        if (!extractedPreferences) return;
+        
+        // 确保userPreferences已正确初始化
+        if (!userPreferences) {
+            userPreferences = {
+                scents: [],
+                aromatherapy_types: [],
+                concerns: [],
+                preferences_collected: false
+            };
+        }
+        
+        // 确保必要的数组属性存在
+        if (!userPreferences.scents) userPreferences.scents = [];
+        if (!userPreferences.aromatherapy_types) userPreferences.aromatherapy_types = [];
+        
+        // 合并现有偏好与新提取的偏好
+        if (extractedPreferences.scents && extractedPreferences.scents.length > 0) {
+            userPreferences.scents = [...new Set([...userPreferences.scents, ...extractedPreferences.scents])];
+        }
+        
+        if (extractedPreferences.aromatherapy_types && extractedPreferences.aromatherapy_types.length > 0) {
+            userPreferences.aromatherapy_types = [...new Set([...userPreferences.aromatherapy_types, ...extractedPreferences.aromatherapy_types])];
+        }
+        
+        // 标记已收集到偏好
+        if ((userPreferences.scents.length > 0 || userPreferences.aromatherapy_types.length > 0) && 
+            !userPreferences.preferences_collected) {
+            userPreferences.preferences_collected = true;
+        }
+        
+        // 保存更新后的对话上下文
+        saveDialogContext();
+    }
+
+    // 添加显示用户偏好的函数
+    function updatePreferencesDisplay() {
+        // 选择情绪显示区域
+        const emotionDisplay = document.querySelector('.emotion-display');
+        if (!emotionDisplay) return;
+        
+        // 确保userPreferences和其属性已正确初始化
+        if (!userPreferences) {
+            userPreferences = {
+                scents: [],
+                aromatherapy_types: [],
+                concerns: [],
+                preferences_collected: false
+            };
+        }
+        
+        // 确保scents和aromatherapy_types存在
+        if (!userPreferences.scents) userPreferences.scents = [];
+        if (!userPreferences.aromatherapy_types) userPreferences.aromatherapy_types = [];
+        
+        // 检查是否已有偏好显示区域
+        let prefDisplay = document.querySelector('.preferences-display');
+        
+        // 如果偏好区域不存在且有偏好数据，则创建
+        if (!prefDisplay && 
+            (userPreferences.scents.length > 0 || userPreferences.aromatherapy_types.length > 0)) {
+            
+            prefDisplay = document.createElement('div');
+            prefDisplay.className = 'preferences-display';
+            
+            const prefTitle = document.createElement('h3');
+            prefTitle.textContent = '您的香薰偏好';
+            prefTitle.className = 'preferences-title';
+            prefDisplay.appendChild(prefTitle);
+            
+            // 添加到情绪显示区域后面
+            emotionDisplay.appendChild(prefDisplay);
+        }
+        
+        // 如果有偏好显示区域，更新内容
+        if (prefDisplay) {
+            // 清除现有内容（除了标题）
+            while (prefDisplay.childNodes.length > 1) {
+                prefDisplay.removeChild(prefDisplay.lastChild);
+            }
+            
+            // 添加喜爱的香气
+            if (userPreferences.scents && userPreferences.scents.length > 0) {
+                const scentSection = document.createElement('div');
+                scentSection.className = 'preference-section';
+                
+                const scentLabel = document.createElement('span');
+                scentLabel.className = 'preference-label';
+                scentLabel.textContent = '喜爱的香气：';
+                scentSection.appendChild(scentLabel);
+                
+                const scentValue = document.createElement('span');
+                scentValue.className = 'preference-value';
+                scentValue.textContent = userPreferences.scents.join('、');
+                scentSection.appendChild(scentValue);
+                
+                prefDisplay.appendChild(scentSection);
+            }
+            
+            // 添加喜爱的香薰类型
+            if (userPreferences.aromatherapy_types && userPreferences.aromatherapy_types.length > 0) {
+                const typeSection = document.createElement('div');
+                typeSection.className = 'preference-section';
+                
+                const typeLabel = document.createElement('span');
+                typeLabel.className = 'preference-label';
+                typeLabel.textContent = '喜爱的香薰类型：';
+                typeSection.appendChild(typeLabel);
+                
+                const typeValue = document.createElement('span');
+                typeValue.className = 'preference-value';
+                typeValue.textContent = userPreferences.aromatherapy_types.join('、');
+                typeSection.appendChild(typeValue);
+                
+                prefDisplay.appendChild(typeSection);
+            }
+        }
+    }
+
+    // 单独的函数来绑定用户菜单事件
+    function bindUserMenuEvents() {
+        const userMenuToggle = document.querySelector('.user-menu-toggle');
+        const userMenu = document.querySelector('.user-menu');
+        
+        if (userMenuToggle && userMenu) {
+            console.log('绑定用户菜单事件');
+            
+            // 确保初始状态为隐藏
+            userMenu.style.display = 'none';
+            
+            // 移除并重新添加点击事件
+            userMenuToggle.removeEventListener('click', toggleUserMenu);
+            userMenuToggle.addEventListener('click', toggleUserMenu);
+            
+            // 为菜单项添加点击事件
+            const menuItems = userMenu.querySelectorAll('li');
+            menuItems.forEach((item, index) => {
+                item.removeEventListener('click', handleMenuItemClick);
+                item.addEventListener('click', function(e) {
+                    handleMenuItemClick(e, index);
+                });
+            });
+        }
+    }
+
+    // 检查回复与用户消息的相关性
+    function checkReplyRelevance(userMessage, reply) {
+        console.log("检查回复相关性");
+        
+        if (!userMessage || !reply) {
+            return true; // 如果没有提供完整信息，默认为相关
+        }
+        
+        // 提取用户消息和回复的关键主题
+        const userLower = userMessage.toLowerCase();
+        const replyLower = reply.toLowerCase();
+        
+        // 关键主题映射（主题 -> 关键词数组）
+        const topicKeywords = {
+            '考试': ['考试', '测试', '考核', '考', '成绩', '分数', '题目', '答案', '复习', '准备', '备考', '难题'],
+            '学习': ['学习', '课程', '课本', '作业', '知识', '理解', '记忆', '学校', '大学', '老师', '学不会', '不懂'],
+            '焦虑': ['焦虑', '紧张', '不安', '担心', '忧虑', '压力', '压抑', '不知所措', '慌张', '心慌'],
+            '心情': ['心情', '情绪', '感受', '感觉', '心态', '难过', '开心', '伤心', '失落', '沮丧', '欣喜'],
+            '工作': ['工作', '职业', '事业', '同事', '上司', '老板', '职场', '就业', '面试', '跳槽', '升职'],
+            '人际关系': ['朋友', '友谊', '关系', '沟通', '交往', '亲密', '疏远', '社交', '互动', '孤独']
+        };
+        
+        // 找出用户消息中提到的主题
+        const userTopics = [];
+        for (const [topic, keywords] of Object.entries(topicKeywords)) {
+            for (const keyword of keywords) {
+                if (userLower.includes(keyword)) {
+                    userTopics.push(topic);
+                    break; // 一个主题只添加一次
+                }
+            }
+        }
+        
+        // 如果用户没有提及特定主题，则视为通用对话，回复被视为相关
+        if (userTopics.length === 0) {
+            console.log("用户消息未明确提及特定主题，默认回复相关");
+            return true;
+        }
+        
+        // 检查回复是否包含用户提及的主题
+        let topicMatched = false;
+        for (const topic of userTopics) {
+            const keywords = topicKeywords[topic];
+            for (const keyword of keywords) {
+                if (replyLower.includes(keyword)) {
+                    console.log(`主题匹配成功: 用户提到"${topic}", 回复包含关键词"${keyword}"`);
+                    topicMatched = true;
+                    break;
+                }
+            }
+            if (topicMatched) break;
+        }
+        
+        // 检查是否包含通用套话而没有实质内容
+        const genericPhrases = [
+            "感谢你的分享",
+            "通过我们的对话",
+            "你是一个非常",
+            "希望我的回答对你有所帮助",
+            "如果你有任何其他问题",
+            "面对这些情况",
+            "你内心最希望得到什么样的支持"
+        ];
+        
+        let hasGenericOnly = false;
+        if (reply.length < 100) { // 短回复更容易是套话
+            hasGenericOnly = genericPhrases.some(phrase => replyLower.includes(phrase.toLowerCase()));
+            if (hasGenericOnly) {
+                console.log("检测到回复仅包含通用套话");
+            }
+        }
+        
+        // 如果回复中包含用户提到的主题关键词，且不仅仅是通用套话，则认为相关
+        const isRelevant = topicMatched && !hasGenericOnly;
+        console.log(`回复相关性检查结果: ${isRelevant ? '相关' : '不相关'}`);
+        
+        return isRelevant;
+    }
+
+    // 检查用户消息是否表达了心情好转
+    function checkMoodImprovement(message) {
+        if (!message) return false;
+        
+        const lowerMessage = message.toLowerCase();
+        
+        // 感谢相关关键词 - 用户表达感谢通常意味着得到了帮助
+        const thankKeywords = [
+            '谢谢', '感谢', '谢谢你', '谢了', '多谢', '感激', 
+            '非常感谢', '谢谢您', '谢谢啦', '谢谢老师', '谢谢助手'
+        ];
+        
+        // 心情好转相关关键词 - 用户直接表达情绪改善
+        const improvedMoodKeywords = [
+            '好多了', '感觉好些了', '舒服多了', '轻松多了', '好点了', 
+            '没那么难受了', '心情好了', '感觉好了', '好转', '缓解', 
+            '放松了', '安心了', '平静了', '不那么焦虑了', '不那么紧张了',
+            '有帮助', '有用', '有效', '起作用', '管用', '有道理',
+            '明白了', '理解了', '清楚了', '豁然开朗', '茅塞顿开'
+        ];
+        
+        // 检查是否包含感谢关键词
+        const containsThanks = thankKeywords.some(keyword => lowerMessage.includes(keyword));
+        
+        // 检查是否包含心情好转关键词
+        const containsImprovedMood = improvedMoodKeywords.some(keyword => lowerMessage.includes(keyword));
+        
+        // 如果包含感谢或心情好转的关键词，则认为用户心情有所好转
+        // 这是推荐香薰的好时机，因为用户可能更愿意接受建议
+        const moodImproved = containsThanks || containsImprovedMood;
+        
+        if (moodImproved) {
+            console.log('检测到用户表达了感谢或心情好转，这是推荐香薰的好时机');
+        }
+        
+        return moodImproved;
     }
 } 
