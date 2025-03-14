@@ -2420,8 +2420,8 @@ if (isBrowser) {
                     console.log('没有聊天历史或加载失败');
                     // 检查是否已经添加了欢迎消息
                     if (!hasAddedWelcomeMessage) {
-                        // 添加欢迎消息
-                        addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
+                    // 添加欢迎消息
+                    addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
                         lastAssistantReply = '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？';
                         hasAddedWelcomeMessage = true;
                     }
@@ -2431,8 +2431,8 @@ if (isBrowser) {
                 console.error('加载聊天历史错误:', error);
                 // 检查是否已经添加了欢迎消息
                 if (!hasAddedWelcomeMessage) {
-                    // 添加欢迎消息
-                    addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
+                // 添加欢迎消息
+                addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
                     lastAssistantReply = '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？';
                     hasAddedWelcomeMessage = true;
                 }
