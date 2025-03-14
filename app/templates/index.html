@@ -379,6 +379,19 @@
                 </div>
             </div>
             
+            <!-- 聊天会话列表 (登录后显示) -->
+            <div class="chat-sessions" id="chatSessions" style="display: none;">
+                <div class="chat-sessions-header">
+                    <h2>对话历史</h2>
+                    <button id="newSessionBtn" class="new-session-btn">
+                        <i class="fas fa-plus"></i> 新对话
+                    </button>
+                </div>
+                <div class="chat-sessions-list" id="chatSessionsList">
+                    <!-- 会话列表将通过JS动态添加 -->
+                </div>
+            </div>
+            
             <div class="persona-selector">
                 <h2>选择人设</h2>
                 <div class="current-persona-container">
@@ -860,6 +873,22 @@
                 authButton.addEventListener('click', function() {
                     openModal('authModal');
                 });
+            }
+            
+            // 绑定新对话按钮事件
+            const newSessionBtn = document.getElementById('newSessionBtn');
+            if (newSessionBtn) {
+                console.log('找到新对话按钮，绑定点击事件');
+                newSessionBtn.addEventListener('click', function() {
+                    console.log('新对话按钮被点击');
+                    if (typeof createNewSession === 'function') {
+                        createNewSession();
+                    } else {
+                        console.error('createNewSession函数未定义');
+                    }
+                });
+            } else {
+                console.error('未找到新对话按钮元素');
             }
         });
         

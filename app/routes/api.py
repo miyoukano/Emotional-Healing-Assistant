@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app import db, csrf
-from app.models import User, ChatMessage, EmotionRecord, AromaProduct, product_emotions
+from app.models import User, ChatMessage, EmotionRecord, AromaProduct, product_emotions, ChatSession
 from app.utils.spark_api import get_spark_client
 from app.utils.aromatherapy_recommender import recommend_products_for_emotion, get_product_details
 import json
@@ -19,133 +19,109 @@ api_bp = Blueprint('api', __name__)
 @api_bp.route('/chat', methods=['POST'])
 @login_required
 def chat():
-    """处理聊天消息"""
+    """处理用户发送的聊天消息"""
     try:
         data = request.get_json()
-        
         if not data:
-            current_app.logger.error("无效的请求数据: %s", request.data)
             return jsonify({'success': False, 'message': '无效的请求数据'}), 400
         
-        message = data.get('message', '')
+        message = data.get('message', '').strip()
         persona = data.get('persona', 'empathetic')
-        
-        # 获取对话上下文相关数据
-        dialog_turns = data.get('dialogTurns', 0)
-        should_recommend_aroma = data.get('shouldRecommendAroma', False)
-        user_preferences = data.get('userPreferences', {
-            'scents': [],
-            'aromatherapy_types': [],
-            'concerns': [],
-            'preferences_collected': False
-        })
-        
-        current_app.logger.info("收到聊天消息: %s, 人设: %s, 对话轮数: %s", message, persona, dialog_turns)
+        session_id = data.get('session_id')
         
         if not message:
             return jsonify({'success': False, 'message': '消息不能为空'}), 400
         
-        # 分析情绪（简单实现，实际应用中应使用NLP）
-        emotion, emotion_score = analyze_emotion(message)
-        current_app.logger.info("情绪分析结果: %s, 分数: %s", emotion, emotion_score)
-        
-        # 如果用户已登录，更新用户的香薰偏好
-        if current_user.is_authenticated and user_preferences:
-            try:
-                # 更新用户的香薰偏好
-                current_user.aroma_preferences = json.dumps({
-                    'scents': user_preferences.get('scents', []),
-                    'types': user_preferences.get('aromatherapy_types', []),
-                    'concerns': user_preferences.get('concerns', []),
-                    'preferences_collected': user_preferences.get('preferences_collected', False)
-                })
-                db.session.commit()
-                current_app.logger.info("更新用户香薰偏好成功")
-            except Exception as e:
-                db.session.rollback()
-                current_app.logger.error("更新用户香薰偏好失败: %s", str(e), exc_info=True)
-        
-        try:
-            # 保存用户消息
-            user_message = ChatMessage(
+        # 获取或创建会话
+        if session_id:
+            session = ChatSession.query.filter_by(id=session_id, user_id=current_user.id).first()
+            if not session:
+                return jsonify({'success': False, 'message': '会话不存在'}), 404
+        else:
+            # 创建新会话
+            session = ChatSession(
                 user_id=current_user.id,
-                content=message,
-                is_user=True,
-                emotion=emotion,
-                emotion_score=emotion_score,
-                persona=persona
+                title=message[:20] + "..." if len(message) > 20 else message,  # 使用消息前20个字符作为标题
+                last_persona=persona
             )
-            db.session.add(user_message)
-            
-            # 记录情绪
-            emotion_record = EmotionRecord(
-                user_id=current_user.id,
-                emotion=emotion,
-                score=emotion_score
-            )
-            db.session.add(emotion_record)
-            
-            # 提交数据库事务，保存用户消息和情绪记录
+            db.session.add(session)
             db.session.commit()
-            current_app.logger.info("用户消息和情绪记录已保存")
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.error("保存用户消息失败: %s", str(e), exc_info=True)
-            return jsonify({'success': False, 'message': '保存消息失败'}), 500
         
-        try:
-            # 使用讯飞星火API生成回复
-            reply = generate_reply_with_spark(message, emotion, persona, dialog_turns, user_preferences)
-            current_app.logger.info("生成回复: %s", reply)
+        # 分析情绪
+        emotion_result = analyze_emotion(message)
+        emotion_type = emotion_result[0] if isinstance(emotion_result, tuple) else emotion_result.get('emotion_type', '平静')
+        emotion_score = emotion_result[1] if isinstance(emotion_result, tuple) else emotion_result.get('emotion_score', 0.5)
+        
+        # 保存用户消息
+        user_message = ChatMessage(
+            user_id=current_user.id,
+            session_id=session.id,
+            content=message,
+            is_user=True,
+            emotion=emotion_type,
+            emotion_score=emotion_score,
+            persona=persona
+        )
+        db.session.add(user_message)
+        
+        # 保存情绪记录
+        emotion_record = EmotionRecord(
+            user_id=current_user.id,
+            emotion=emotion_type,
+            score=emotion_score
+        )
+        db.session.add(emotion_record)
+        
+        # 提取用户偏好
+        user_preferences = json.loads(current_user.aroma_preferences) if current_user.aroma_preferences else {}
+        
+        # 获取对话轮次
+        dialog_turns = ChatMessage.query.filter_by(session_id=session.id).count() // 2
+        
+        # 生成回复
+        if 'generate_reply_with_spark' in globals():
+            reply_result = generate_reply_with_spark(message, emotion_type, persona, dialog_turns, user_preferences)
+            reply = reply_result
+        else:
+            reply_result = generate_reply(message, emotion_type, persona, dialog_turns, user_preferences)
+            reply = reply_result.get('reply', '') if isinstance(reply_result, dict) else reply_result
             
             # 保存助手回复
             assistant_message = ChatMessage(
                 user_id=current_user.id,
+                session_id=session.id,
                 content=reply,
                 is_user=False,
-                emotion=emotion,
+                emotion=emotion_type,
                 emotion_score=emotion_score,
                 persona=persona
             )
             db.session.add(assistant_message)
             
-            # 提交数据库事务，保存助手回复
-            db.session.commit()
-            current_app.logger.info("助手回复已保存")
-            
-            # 获取情绪图标和描述
-            emotion_icon = get_emotion_icon(emotion)
-            emotion_description = get_emotion_description(emotion)
-            
-            # 是否推荐香薰产品
-            recommendations = []
-            if should_recommend_aroma and dialog_turns >= 7:  # 确保至少经过7轮对话
-                # 从数据库获取推荐产品
-                recommendations = recommend_products(emotion, current_user.id, user_preferences)
-            
-            return jsonify({
-                'success': True,
-                'reply': reply,
-                'emotion': emotion,
-                'emotion_score': emotion_score,
-                'emotion_type': emotion,
-                'emotion_icon': emotion_icon,
-                'emotion_description': emotion_description,
-                'recommendations': recommendations,
-                'dialogTurns': dialog_turns,
-                'shouldRecommendAroma': should_recommend_aroma,
-                'userPreferences': user_preferences
-            })
-            
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.error("保存助手回复失败: %s", str(e), exc_info=True)
-            return jsonify({
-                'success': False, 
-                'message': '保存回复失败',
-                'user_message_saved': True  # 表示用户消息已保存
-            }), 500
+        # 更新会话信息
+        session.last_emotion = emotion_type
+        session.last_persona = persona
+        session.updated_at = datetime.utcnow()
         
+        # 如果是第一条消息，更新会话标题
+        if dialog_turns == 0:
+            # 使用消息的前20个字符作为标题
+            session.title = message[:20] + "..." if len(message) > 20 else message
+        
+        db.session.commit()
+        
+        # 返回结果
+        return jsonify({
+            'success': True,
+            'reply': reply,
+            'emotion': {
+                'type': emotion_type,
+                'score': emotion_score,
+                'icon': get_emotion_icon(emotion_type),
+                'description': get_emotion_description(emotion_type)
+            },
+            'session_id': session.id
+        })
     except Exception as e:
         current_app.logger.error("处理聊天消息失败: %s", str(e), exc_info=True)
         return jsonify({'success': False, 'message': '服务器内部错误'}), 500
@@ -153,10 +129,32 @@ def chat():
 @api_bp.route('/chat-history', methods=['GET'])
 @login_required
 def get_chat_history():
-    """获取用户的聊天历史"""
+    """获取用户的聊天历史（兼容旧版API）"""
     try:
-        # 获取当前用户的聊天历史
-        messages = ChatMessage.query.filter_by(user_id=current_user.id).order_by(ChatMessage.timestamp).all()
+        # 获取会话ID参数
+        session_id = request.args.get('session_id')
+        
+        if session_id:
+            # 获取特定会话的消息
+            messages = ChatMessage.query.filter_by(
+                user_id=current_user.id,
+                session_id=session_id
+            ).order_by(ChatMessage.timestamp).all()
+        else:
+            # 获取最新会话的消息
+            latest_session = ChatSession.query.filter_by(
+                user_id=current_user.id
+            ).order_by(ChatSession.updated_at.desc()).first()
+            
+            if latest_session:
+                messages = ChatMessage.query.filter_by(
+                    user_id=current_user.id,
+                    session_id=latest_session.id
+                ).order_by(ChatMessage.timestamp).all()
+                session_id = latest_session.id
+            else:
+                messages = []
+                session_id = None
         
         # 转换为JSON格式
         messages_json = []
@@ -169,31 +167,16 @@ def get_chat_history():
                 'emotion': msg.emotion,
                 'persona': msg.persona,
             })
-            
-        # 获取用户偏好数据
-        user_preferences = {}
-        if current_user.aroma_preferences:
-            try:
-                user_preferences = json.loads(current_user.aroma_preferences)
-            except:
-                user_preferences = {
-                    'scents': [],
-                    'aromatherapy_types': [],
-                    'concerns': [],
-                    'preferences_collected': False
-                }
         
         return jsonify({
             'success': True,
             'messages': messages_json,
-            'userPreferences': user_preferences
+            'session_id': session_id
         })
+    
     except Exception as e:
         current_app.logger.error("获取聊天历史失败: %s", str(e), exc_info=True)
-        return jsonify({
-            'success': False,
-            'message': '获取聊天历史失败'
-        }), 500
+        return jsonify({'success': False, 'message': '服务器内部错误'}), 500
 
 @api_bp.route('/save-persona', methods=['POST'])
 @login_required
@@ -1022,4 +1005,181 @@ def api_product_details(product_id):
             "success": False,
             "message": "获取产品详情时出错",
             "error": str(e)
-        }), 500 
+        }), 500
+
+@api_bp.route('/chat-sessions', methods=['GET'])
+@login_required
+def get_chat_sessions():
+    """获取用户的所有聊天会话"""
+    try:
+        # 获取当前用户的聊天会话
+        sessions = ChatSession.query.filter_by(user_id=current_user.id).order_by(ChatSession.updated_at.desc()).all()
+        
+        # 转换为JSON格式
+        sessions_json = []
+        for session in sessions:
+            # 获取会话中的第一条消息作为预览
+            first_message = ChatMessage.query.filter_by(session_id=session.id, is_user=True).order_by(ChatMessage.timestamp).first()
+            preview = first_message.content[:30] + "..." if first_message and len(first_message.content) > 30 else (first_message.content if first_message else "")
+            
+            # 获取会话中的消息数量
+            message_count = ChatMessage.query.filter_by(session_id=session.id).count()
+            
+            sessions_json.append({
+                'id': session.id,
+                'title': session.title,
+                'preview': preview,
+                'created_at': session.created_at.isoformat(),
+                'updated_at': session.updated_at.isoformat(),
+                'last_emotion': session.last_emotion,
+                'last_persona': session.last_persona,
+                'message_count': message_count
+            })
+        
+        return jsonify({
+            'success': True,
+            'sessions': sessions_json
+        })
+    
+    except Exception as e:
+        current_app.logger.error("获取聊天会话失败: %s", str(e), exc_info=True)
+        return jsonify({'success': False, 'message': '服务器内部错误'}), 500
+
+@api_bp.route('/chat-sessions/<int:session_id>', methods=['GET'])
+@login_required
+def get_chat_session(session_id):
+    """获取特定聊天会话的详细信息"""
+    try:
+        # 获取指定的聊天会话
+        session = ChatSession.query.filter_by(id=session_id, user_id=current_user.id).first()
+        
+        if not session:
+            return jsonify({'success': False, 'message': '会话不存在'}), 404
+        
+        # 获取会话中的所有消息
+        messages = ChatMessage.query.filter_by(session_id=session.id).order_by(ChatMessage.timestamp).all()
+        
+        # 转换为JSON格式
+        messages_json = []
+        for msg in messages:
+            messages_json.append({
+                'id': msg.id,
+                'content': msg.content,
+                'is_user': msg.is_user,
+                'timestamp': msg.timestamp.isoformat(),
+                'emotion': msg.emotion,
+                'persona': msg.persona,
+            })
+        
+        return jsonify({
+            'success': True,
+            'session': {
+                'id': session.id,
+                'title': session.title,
+                'created_at': session.created_at.isoformat(),
+                'updated_at': session.updated_at.isoformat(),
+                'last_emotion': session.last_emotion,
+                'last_persona': session.last_persona,
+                'messages': messages_json
+            }
+        })
+    
+    except Exception as e:
+        current_app.logger.error("获取聊天会话详情失败: %s", str(e), exc_info=True)
+        return jsonify({'success': False, 'message': '服务器内部错误'}), 500
+
+@api_bp.route('/chat-sessions/<int:session_id>', methods=['PUT'])
+@login_required
+def update_chat_session(session_id):
+    """更新聊天会话信息"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'message': '无效的请求数据'}), 400
+        
+        # 获取指定的聊天会话
+        session = ChatSession.query.filter_by(id=session_id, user_id=current_user.id).first()
+        
+        if not session:
+            return jsonify({'success': False, 'message': '会话不存在'}), 404
+        
+        # 更新标题
+        if 'title' in data:
+            session.title = data['title']
+            db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'session': {
+                'id': session.id,
+                'title': session.title,
+                'updated_at': session.updated_at.isoformat()
+            }
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error("更新聊天会话失败: %s", str(e), exc_info=True)
+        return jsonify({'success': False, 'message': '服务器内部错误'}), 500
+
+@api_bp.route('/chat-sessions/<int:session_id>', methods=['DELETE'])
+@login_required
+def delete_chat_session(session_id):
+    """删除聊天会话"""
+    try:
+        # 获取指定的聊天会话
+        session = ChatSession.query.filter_by(id=session_id, user_id=current_user.id).first()
+        
+        if not session:
+            return jsonify({'success': False, 'message': '会话不存在'}), 404
+        
+        # 删除会话中的所有消息
+        ChatMessage.query.filter_by(session_id=session.id).delete()
+        
+        # 删除会话
+        db.session.delete(session)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': '会话已删除'
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error("删除聊天会话失败: %s", str(e), exc_info=True)
+        return jsonify({'success': False, 'message': '服务器内部错误'}), 500
+
+@api_bp.route('/chat-sessions/new', methods=['POST'])
+@login_required
+def create_chat_session():
+    """创建新的聊天会话"""
+    try:
+        current_app.logger.info("开始创建新的聊天会话，用户ID: %s", current_user.id)
+        
+        # 创建新会话
+        session = ChatSession(
+            user_id=current_user.id,
+            title="新对话",
+            last_persona="empathetic"  # 默认使用共情型人设
+        )
+        db.session.add(session)
+        db.session.commit()
+        
+        current_app.logger.info("成功创建新的聊天会话，会话ID: %s", session.id)
+        
+        return jsonify({
+            'success': True,
+            'session': {
+                'id': session.id,
+                'title': session.title,
+                'created_at': session.created_at.isoformat(),
+                'updated_at': session.updated_at.isoformat(),
+                'last_persona': session.last_persona
+            }
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error("创建聊天会话失败: %s", str(e), exc_info=True)
+        return jsonify({'success': False, 'message': '服务器内部错误: ' + str(e)}), 500 

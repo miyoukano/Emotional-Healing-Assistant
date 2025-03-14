@@ -4,6 +4,7 @@ let currentUser = null;
 let isLoggedIn = false;
 let currentEmotion = '平静';
 let currentPersona = 'empathetic';
+let currentSessionId = null; // 当前会话ID
 let dialogTurns = 0;
 let shouldRecommendAroma = false;
 let userPreferences = {
@@ -90,10 +91,29 @@ if (isBrowser) {
         loadRecommendations();
 
         // 检查登录状态
-        checkLoginStatus().then(() => {
+        console.log('开始检查登录状态...');
+        checkLoginStatus().then((isLoggedIn) => {
+            console.log('登录状态检查完成，用户是否登录:', isLoggedIn);
             // 验证用户登录后，加载聊天历史
             if (isLoggedIn && currentUser) {
-                console.log('用户已登录，加载聊天历史...');
+                console.log('用户已登录，用户信息:', currentUser.username);
+                // 加载聊天会话列表
+                console.log('开始加载聊天会话列表...');
+                loadChatSessions();
+                
+                // 确保新对话按钮可点击
+                const newSessionBtn = document.getElementById('newSessionBtn');
+                if (newSessionBtn) {
+                    console.log('初始化时绑定新对话按钮点击事件');
+                    newSessionBtn.addEventListener('click', function(e) {
+                        console.log('新对话按钮被点击（从init中）');
+                        e.preventDefault();
+                        e.stopPropagation();
+                        createNewSession();
+                    });
+                }
+                
+                // 加载聊天历史
                 loadChatHistory();
                 
                 // 直接绑定用户菜单事件
@@ -104,6 +124,8 @@ if (isBrowser) {
                 console.log('用户未登录，尝试加载本地聊天历史...');
                 loadChatHistory();
             }
+        }).catch(error => {
+            console.error('检查登录状态时出错:', error);
         });
 
         // 初始化聊天区域滚动
@@ -513,7 +535,8 @@ if (isBrowser) {
                 persona: currentPersona,
                 dialogTurns: dialogTurns,
                 shouldRecommendAroma: shouldRecommendAroma,
-                userPreferences: userPreferences
+                userPreferences: userPreferences,
+                session_id: currentSessionId
             })
         })
         .then(response => {
@@ -534,6 +557,16 @@ if (isBrowser) {
             removeTypingIndicator();
             
             if (data.success) {
+                // 检查是否有新的会话ID
+                if (data.session_id && data.session_id !== currentSessionId) {
+                    console.log('收到新的会话ID:', data.session_id);
+                    currentSessionId = data.session_id;
+                    // 重新加载会话列表
+                    if (isLoggedIn) {
+                        loadChatSessions();
+                    }
+                }
+                
                 // 检查是否有回复
                 if (data.reply) {
                     // 验证回复是否重复或不相关
@@ -568,10 +601,10 @@ if (isBrowser) {
                 // 更新情绪显示
                 if (data.emotion) {
                     updateEmotionDisplay(
-                        data.emotion_type || 'neutral', 
-                        data.emotion || '平静', 
-                        data.emotion_icon || 'fa-smile',
-                        data.emotion_description || '您当前的情绪状态看起来很平静'
+                        data.emotion.type || 'neutral', 
+                        data.emotion.type || '平静', 
+                        data.emotion.icon || 'fa-smile',
+                        data.emotion.description || '您当前的情绪状态看起来很平静'
                     );
                 }
                 
@@ -2152,12 +2185,15 @@ if (isBrowser) {
 
     // 检查登录状态
     function checkLoginStatus() {
+        console.log('开始检查登录状态...');
         return new Promise((resolve, reject) => {
         // 从后端API获取当前用户信息
         fetch('/api/user/profile')
             .then(response => {
+                console.log('收到登录状态API响应:', response.status);
                 if (response.status === 401) {
                     // 未登录
+                    console.log('用户未登录（401响应）');
                     isLoggedIn = false;
                     currentUser = null;
                         resolve(false);
@@ -2168,11 +2204,13 @@ if (isBrowser) {
             .then(data => {
                 if (data && data.success) {
                     // 已登录
+                    console.log('用户已登录，用户信息:', data.user);
                     currentUser = data.user;
                     isLoggedIn = true;
                     updateUIForLoggedInUser();
                         resolve(true);
                     } else if (data) {
+                        console.log('登录状态API返回数据，但不成功:', data);
                         resolve(false);
                 }
             })
@@ -2237,10 +2275,21 @@ if (isBrowser) {
     // 更新已登录用户的UI
     function updateUIForLoggedInUser() {
         if (currentUser) {
+            console.log('更新UI为已登录用户:', currentUser.username);
+            
             // 隐藏登录按钮，显示用户资料
             document.getElementById('authButton').style.display = 'none';
             const userProfile = document.getElementById('userProfile');
             userProfile.style.display = 'flex';
+            
+            // 显示聊天会话列表
+            const chatSessions = document.getElementById('chatSessions');
+            if (chatSessions) {
+                console.log('显示聊天会话列表');
+                chatSessions.style.display = 'block';
+            } else {
+                console.error('未找到聊天会话列表元素');
+            }
             
             // 更新用户信息
             document.querySelector('.user-name').textContent = currentUser.username;
@@ -2327,13 +2376,19 @@ if (isBrowser) {
     }
     
     // 加载聊天历史
-    function loadChatHistory() {
+    function loadChatHistory(sessionId) {
         // 清空聊天区域
         const chatMessages = document.getElementById('chatMessages');
         chatMessages.innerHTML = '';
         
+        // 构建API URL
+        let url = '/api/chat-history';
+        if (sessionId) {
+            url += `?session_id=${sessionId}`;
+        }
+        
         // 从后端API获取聊天历史
-        fetch('/api/chat-history')
+        fetch(url)
             .then(response => {
                 if (!response.ok) {
                     throw new Error('获取聊天历史失败');
@@ -2343,6 +2398,11 @@ if (isBrowser) {
             .then(data => {
                 if (data.success && data.messages && data.messages.length > 0) {
                     console.log('加载聊天历史:', data.messages.length, '条消息');
+                    
+                    // 更新当前会话ID
+                    if (data.session_id) {
+                        currentSessionId = data.session_id;
+                    }
                     
                     // 按时间顺序排序消息（从旧到新）
                     const sortedMessages = data.messages.sort((a, b) => {
@@ -2389,53 +2449,18 @@ if (isBrowser) {
                     if (dialogTurns >= MIN_TURNS_BEFORE_RECOMMEND) {
                         shouldRecommendAroma = true;
                     }
-                    
-                    // 从服务器获取用户偏好
-                    if (data.userPreferences) {
-                        userPreferences = data.userPreferences;
-                        
-                        // 检查转换格式，确保结构一致
-                        if (!userPreferences.scents && userPreferences.aromas) {
-                            userPreferences.scents = userPreferences.aromas;
-                        }
-                        
-                        if (!userPreferences.aromatherapy_types && userPreferences.types) {
-                            userPreferences.aromatherapy_types = userPreferences.types;
-                        }
-                        
-                        // 确保所有必要的字段都存在
-                        userPreferences.scents = userPreferences.scents || [];
-                        userPreferences.aromatherapy_types = userPreferences.aromatherapy_types || [];
-                        userPreferences.concerns = userPreferences.concerns || [];
-                        userPreferences.preferences_collected = userPreferences.preferences_collected || 
-                            (userPreferences.scents.length > 0 || userPreferences.aromatherapy_types.length > 0);
-                    }
-                    
-                    // 保存对话上下文并更新偏好显示
-                    saveDialogContext();
-                    
-                    // 加载推荐区域
-                    loadRecommendations();
                 } else {
-                    console.log('没有聊天历史或加载失败');
-                    // 检查是否已经添加了欢迎消息
-                    if (!hasAddedWelcomeMessage) {
-                    // 添加欢迎消息
-                    addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
-                        lastAssistantReply = '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？';
-                        hasAddedWelcomeMessage = true;
-                    }
+                    console.log('没有聊天历史或加载失败，显示欢迎消息');
+                    // 如果没有历史记录，显示欢迎消息
+                    addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天感觉如何？有什么想和我分享的吗？');
+                    updateAssistantAvatars();
                 }
             })
             .catch(error => {
-                console.error('加载聊天历史错误:', error);
-                // 检查是否已经添加了欢迎消息
-                if (!hasAddedWelcomeMessage) {
-                // 添加欢迎消息
-                addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？');
-                    lastAssistantReply = '你好！我是你的情绪愈疗助手。今天你感觉怎么样？有什么我可以帮助你的吗？';
-                    hasAddedWelcomeMessage = true;
-                }
+                console.error('加载聊天历史失败:', error);
+                // 出错时也显示欢迎消息
+                addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天感觉如何？有什么想和我分享的吗？');
+                updateAssistantAvatars();
             });
     }
     
@@ -2443,6 +2468,19 @@ if (isBrowser) {
     function updateEmotionDisplayFromHistory(emotion) {
         let emotionType, emotionLabel, emotionIcon, emotionDescription;
         
+        // 检查emotion是否为对象
+        if (typeof emotion === 'object' && emotion !== null) {
+            // 如果是对象，直接使用其属性
+            updateEmotionDisplay(
+                emotion.type || 'neutral',
+                emotion.type || '平静',
+                emotion.icon || 'fa-meh',
+                emotion.description || '您的情绪似乎比较平静。'
+            );
+            return;
+        }
+        
+        // 如果是字符串，使用原有的switch逻辑
         switch (emotion) {
             case '快乐':
                 emotionType = 'happy';
@@ -3236,5 +3274,292 @@ if (isBrowser) {
         }
         
         return moodImproved;
+    }
+    
+    // 获取CSRF令牌
+    function getCsrfToken() {
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        return csrfMeta ? csrfMeta.getAttribute('content') : '';
+    }
+
+    // 加载聊天会话列表
+    function loadChatSessions() {
+        console.log('开始加载聊天会话列表...');
+        
+        // 显示聊天会话列表区域
+        const chatSessionsElement = document.getElementById('chatSessions');
+        if (chatSessionsElement) {
+            console.log('找到chatSessions元素，设置为显示');
+            chatSessionsElement.style.display = 'block';
+            
+            // 强制显示，防止CSS样式冲突
+            setTimeout(() => {
+                chatSessionsElement.style.display = 'block';
+                console.log('再次确认chatSessions元素显示');
+            }, 500);
+        } else {
+            console.error('未找到chatSessions元素');
+        }
+        
+        // 从后端API获取聊天会话列表
+        console.log('开始从API获取聊天会话列表...');
+        fetch('/api/chat-sessions')
+            .then(response => {
+                console.log('收到API响应:', response.status);
+                if (!response.ok) {
+                    throw new Error('获取聊天会话列表失败');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('解析API响应数据:', data);
+                if (data.success && data.sessions) {
+                    console.log('加载聊天会话列表:', data.sessions.length, '个会话');
+                    updateChatSessionsUI(data.sessions);
+                } else {
+                    console.log('没有聊天会话或加载失败');
+                    updateChatSessionsUI([]);
+                }
+            })
+            .catch(error => {
+                console.error('加载聊天会话列表失败:', error);
+                updateChatSessionsUI([]);
+            });
+    }
+    
+    // 更新聊天会话列表UI
+    function updateChatSessionsUI(sessions) {
+        console.log('开始更新聊天会话列表UI...');
+        
+        const chatSessionsList = document.getElementById('chatSessionsList');
+        if (!chatSessionsList) {
+            console.error('未找到chatSessionsList元素');
+            return;
+        }
+        
+        console.log('找到chatSessionsList元素，开始清空列表');
+        // 清空列表
+        chatSessionsList.innerHTML = '';
+        
+        // 添加"新建会话"按钮事件
+        const newSessionBtn = document.getElementById('newSessionBtn');
+        if (newSessionBtn) {
+            console.log('找到newSessionBtn元素，绑定点击事件');
+            // 先移除所有现有的点击事件处理程序
+            newSessionBtn.removeEventListener('click', createNewSession);
+            // 然后添加新的点击事件处理程序
+            newSessionBtn.addEventListener('click', function(e) {
+                console.log('新对话按钮被点击（从updateChatSessionsUI中）');
+                e.preventDefault();
+                e.stopPropagation();
+                createNewSession();
+            });
+        } else {
+            console.error('未找到newSessionBtn元素');
+        }
+        
+        // 如果没有会话，显示提示信息
+        if (sessions.length === 0) {
+            console.log('没有会话，显示提示信息');
+            const emptyMessage = document.createElement('div');
+            emptyMessage.className = 'empty-sessions-message';
+            emptyMessage.textContent = '没有聊天记录，开始新的对话吧！';
+            chatSessionsList.appendChild(emptyMessage);
+            return;
+        }
+        
+        console.log('开始添加会话项，共', sessions.length, '个会话');
+        // 添加会话项
+        sessions.forEach((session, index) => {
+            console.log(`添加第${index + 1}个会话项:`, session.id, session.title);
+            const sessionItem = document.createElement('div');
+            sessionItem.className = 'chat-session-item';
+            if (session.id === currentSessionId) {
+                sessionItem.classList.add('active');
+            }
+            sessionItem.dataset.sessionId = session.id;
+            
+            const titleElement = document.createElement('div');
+            titleElement.className = 'chat-session-title';
+            titleElement.textContent = session.title || '新对话';
+            
+            const previewElement = document.createElement('div');
+            previewElement.className = 'chat-session-preview';
+            previewElement.textContent = session.preview || '没有内容';
+            
+            const actionsElement = document.createElement('div');
+            actionsElement.className = 'chat-session-actions';
+            
+            // 编辑按钮
+            const editAction = document.createElement('div');
+            editAction.className = 'chat-session-action edit';
+            editAction.innerHTML = '<i class="fas fa-edit"></i>';
+            editAction.onclick = (e) => {
+                e.stopPropagation();
+                editSessionTitle(session.id);
+            };
+            
+            // 删除按钮
+            const deleteAction = document.createElement('div');
+            deleteAction.className = 'chat-session-action delete';
+            deleteAction.innerHTML = '<i class="fas fa-trash"></i>';
+            deleteAction.onclick = (e) => {
+                e.stopPropagation();
+                deleteSession(session.id);
+            };
+            
+            actionsElement.appendChild(editAction);
+            actionsElement.appendChild(deleteAction);
+            
+            sessionItem.appendChild(titleElement);
+            sessionItem.appendChild(previewElement);
+            sessionItem.appendChild(actionsElement);
+            
+            // 点击会话项切换到该会话
+            sessionItem.onclick = () => {
+                switchToSession(session.id);
+            };
+            
+            chatSessionsList.appendChild(sessionItem);
+        });
+    }
+    
+    // 创建新会话
+    function createNewSession() {
+        console.log('点击创建新会话按钮');
+        
+        // 获取CSRF令牌
+        const csrfToken = getCsrfToken();
+        console.log('获取到CSRF令牌:', csrfToken ? '成功' : '失败');
+        
+        fetch('/api/chat-sessions/new', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        })
+        .then(response => {
+            console.log('创建新会话API响应状态:', response.status);
+            if (!response.ok) {
+                throw new Error('创建新会话失败，状态码: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('创建新会话API响应数据:', data);
+            if (data.success && data.session) {
+                console.log('创建新会话成功:', data.session);
+                // 切换到新会话
+                switchToSession(data.session.id);
+                // 重新加载会话列表
+                loadChatSessions();
+            } else {
+                console.error('创建新会话失败:', data.message);
+                alert('创建新会话失败: ' + (data.message || '未知错误'));
+            }
+        })
+        .catch(error => {
+            console.error('创建新会话请求失败:', error);
+            alert('创建新会话请求失败: ' + error.message);
+        });
+    }
+    
+    // 切换到指定会话
+    function switchToSession(sessionId) {
+        if (sessionId === currentSessionId) return;
+        
+        currentSessionId = sessionId;
+        
+        // 更新UI中的活动会话
+        const sessionItems = document.querySelectorAll('.chat-session-item');
+        sessionItems.forEach(item => {
+            if (item.dataset.sessionId == sessionId) {
+                item.classList.add('active');
+            } else {
+                item.classList.remove('active');
+            }
+        });
+        
+        // 加载该会话的聊天历史
+        loadChatHistory(sessionId);
+    }
+    
+    // 编辑会话标题
+    function editSessionTitle(sessionId) {
+        const newTitle = prompt('请输入新的会话标题:');
+        if (newTitle === null || newTitle.trim() === '') return;
+        
+        fetch(`/api/chat-sessions/${sessionId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({
+                title: newTitle.trim()
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('更新会话标题失败');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                console.log('更新会话标题成功');
+                // 重新加载会话列表
+                loadChatSessions();
+            } else {
+                console.error('更新会话标题失败:', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('更新会话标题请求失败:', error);
+        });
+    }
+    
+    // 删除会话
+    function deleteSession(sessionId) {
+        if (!confirm('确定要删除这个会话吗？此操作不可撤销。')) return;
+        
+        fetch(`/api/chat-sessions/${sessionId}`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': getCsrfToken()
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('删除会话失败');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                console.log('删除会话成功');
+                
+                // 如果删除的是当前会话，切换到其他会话或创建新会话
+                if (sessionId === currentSessionId) {
+                    // 重新加载会话列表，会自动切换到第一个会话或显示空状态
+                    loadChatSessions();
+                    // 清空聊天区域
+                    const chatMessages = document.getElementById('chatMessages');
+                    if (chatMessages) {
+                        chatMessages.innerHTML = '';
+                    }
+                    currentSessionId = null;
+                } else {
+                    // 仅重新加载会话列表
+                    loadChatSessions();
+                }
+            } else {
+                console.error('删除会话失败:', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('删除会话请求失败:', error);
+        });
     }
 } 

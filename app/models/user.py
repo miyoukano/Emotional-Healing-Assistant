@@ -25,6 +25,7 @@ class User(UserMixin, db.Model):
     
     # 关系
     chat_history = db.relationship('ChatMessage', backref='user', lazy='dynamic')
+    chat_sessions = db.relationship('ChatSession', backref='user', lazy='dynamic', order_by="desc(ChatSession.updated_at)")
     
     @property
     def password(self):
