@@ -19,7 +19,7 @@ def login():
     # GET请求返回登录页面
     if request.method == 'GET':
         next_url = request.args.get('next', '')
-        return render_template('login.html', next=next_url)
+        return render_template('index.html', next=next_url)
     
     # POST请求处理登录
     print("=" * 50)
@@ -93,7 +93,7 @@ def register():
     """用户注册"""
     # GET请求返回注册页面
     if request.method == 'GET':
-        return render_template('register.html')
+        return render_template('index.html')
     
     # POST请求处理注册
     print("=" * 50)
@@ -233,7 +233,7 @@ def reset_password(token):
         flash('密码已重置', 'success')
         return redirect(url_for('auth.login'))
     
-    return render_template('reset_password.html')
+    return render_template('index.html', reset_token=token)
 
 def send_confirmation_email(user):
     """发送确认邮件"""

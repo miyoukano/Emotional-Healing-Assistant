@@ -19,9 +19,6 @@
 - **UI设计**：响应式设计，适配不同设备
 - **数据可视化**：Chart.js
 - **后端**：Flask 3.1.0, MySQL
-- **API集成**：OpenAI API
-- **数据处理**：jieba, pandas
-- **部署**：gunicorn, gevent
 - **环境**：Python 3.9.15, pip 23.3.2
 
 ## 项目结构
@@ -161,52 +158,9 @@ python import_db.py
 python init_db.py
 ```
 
-## 已知问题
+### 模板设计说明
 
-### 模板缺失问题
-
-当前版本可能会出现模板缺失的错误，例如：
-
-```
-jinja2.exceptions.TemplateNotFound: login.html
-```
-
-这是因为某些模板文件可能未包含在项目中。如果遇到此问题，请按照以下步骤解决：
-
-1. 检查 `app/templates/` 目录，确保所有必要的模板文件都存在
-2. 创建缺失的模板文件，例如 `login.html`
-3. 基本的 `login.html` 模板示例：
-   ```html
-   <!DOCTYPE html>
-   <html>
-   <head>
-       <title>登录 - 情绪愈疗助手</title>
-       <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-   </head>
-   <body>
-       <div class="container">
-           <h1>登录</h1>
-           <form method="POST">
-               {{ form.hidden_tag() }}
-               <div class="form-group">
-                   {{ form.username.label }}
-                   {{ form.username(class="form-control") }}
-               </div>
-               <div class="form-group">
-                   {{ form.password.label }}
-                   {{ form.password(class="form-control") }}
-               </div>
-               <div class="form-group">
-                   {{ form.remember_me.label }}
-                   {{ form.remember_me() }}
-               </div>
-               <button type="submit" class="btn btn-primary">登录</button>
-           </form>
-           <p>还没有账号？<a href="{{ url_for('auth.register') }}">注册</a></p>
-       </div>
-   </body>
-   </html>
-   ```
+本项目采用单页面应用(SPA)设计，所有功能（包括登录、注册、重置密码等）都在`index.html`一个页面中实现，通过JavaScript控制不同组件的显示和隐藏。
 
 ### 数据库连接问题
 
