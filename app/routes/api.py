@@ -82,6 +82,18 @@ def chat():
         if 'generate_reply_with_spark' in globals():
             reply_result = generate_reply_with_spark(message, emotion_type, persona, dialog_turns, user_preferences)
             reply = reply_result
+            
+            # 保存助手回复
+            assistant_message = ChatMessage(
+                user_id=current_user.id,
+                session_id=session.id,
+                content=reply,
+                is_user=False,
+                emotion=emotion_type,
+                emotion_score=emotion_score,
+                persona=persona
+            )
+            db.session.add(assistant_message)
         else:
             reply_result = generate_reply(message, emotion_type, persona, dialog_turns, user_preferences)
             reply = reply_result.get('reply', '') if isinstance(reply_result, dict) else reply_result
@@ -97,7 +109,7 @@ def chat():
                 persona=persona
             )
             db.session.add(assistant_message)
-            
+        
         # 更新会话信息
         session.last_emotion = emotion_type
         session.last_persona = persona
@@ -617,37 +629,36 @@ def generate_reply(message, emotion, persona, dialog_turns=0, user_preferences=N
             else:
                 return '感谢你继续和我分享你的感受。通过我们的对话，我能感受到你是一个非常有韧性的人。面对这些情况，你内心最希望得到什么样的支持或改变呢？'
         elif persona == 'motivational':
-            return '你的坚持让我很感动！即使面对困难，你仍然在努力寻找解决方法，这本身就是一种成功。记住，每一个挑战都是成长的机会。你已经迈出了重要的一步，接下来，让我们一起思考如何将这些小进步转化为更大的成功。'
+            return '通过我们这段时间的交流，我真的被你的毅力和进步所感动！记住，每一小步的前进都是值得庆祝的成就。你已经取得了很大的进步，接下来有什么新的目标想要实现吗？'
         elif persona == 'analytical':
-            return '根据你分享的情况，我注意到几个关键因素可能相互影响。这种复杂的情绪状态通常需要从多角度分析。如果我们把问题分解成几个小部分，或许能更清晰地看到潜在的解决方案。你觉得我们应该先关注哪一方面？'
+            return '基于我们之前的多次分析和讨论，我认为我们已经对情况有了较为清晰的理解。在考虑各种因素的基础上，我们可以制定一个更系统的方法来应对当前的挑战。你觉得我们应该从哪个方面入手？'
         elif persona == 'mindful':
-            return '在繁忙的生活中，我们常常忽略了当下的感受。尝试暂时放下对过去和未来的思考，完全沉浸在此刻的体验中。你能感受到你的呼吸吗？感受它如何流经你的身体，带来平静和清明。这种简单的觉知练习往往能帮助我们重新获得内心的平衡。'
+            return '在我们的多次正念练习和交流中，我注意到你对当下体验的觉知已经有了显著的提升。真正的平静来自于你内在的觉知和接纳。继续保持这种美好的觉察，让每一刻都充满意义。你最近有什么新的体会吗？'
         else:
-            return '听了你的分享，我能感受到你对自己的理解和反思。这种自我觉察是非常珍贵的品质。在接下来的旅程中，无论遇到什么挑战，请记住，每一次经历都是成长的养分，而你内在的力量远比你想象的要强大。'
+            return '通过我们这段时间的深入交流，我对你的情况和需求有了更全面的理解。你有什么新的想法或感受想要分享吗？我很期待听到你的更多故事。'
     else:
-        # 多轮对话后，可以开始考虑推荐
+        # 多轮对话后的回复
         if persona == 'empathetic':
             if emotion == '悲伤':
-                return '我们聊了这么多，我真的能体会到你的情绪。在这种悲伤的状态下，有时候适当的外部帮助也很重要。我想提一点小建议，一些带有玫瑰或薰衣草成分的香薰可能对舒缓情绪有帮助。这些天然成分有着安抚心灵的特性。当然，最重要的是你能找到适合自己的方式，慢慢走出这段情绪。'
+                return '我们聊了这么多，我真的能体会到你的情绪。在这种悲伤的状态下，有时候适当的外部帮助也很重要。最重要的是你能找到适合自己的方式，慢慢走出这段情绪。你有什么想法或计划来帮助自己度过这段时期吗？'
             elif emotion == '焦虑':
-                return '通过我们的交流，我对你的焦虑有了更深的理解。面对这样的情绪，除了我们讨论的心理调适方法外，一些外部辅助也可能有益。薰衣草和洋甘菊的香气以其镇静特性而闻名，可能帮助缓解紧张情绪。无论你选择什么方式，请记住，管理焦虑是一个过程，给自己足够的耐心和关爱。'
+                return '通过我们的交流，我对你的焦虑有了更深的理解。面对这样的情绪，除了我们讨论的心理调适方法外，给自己足够的耐心和关爱也很重要。你觉得哪些方法对你最有效？'
             elif emotion == '愤怒':
-                return '经过我们这段时间的交流，我更能理解你愤怒背后的原因了。处理这种强烈情绪时，除了我们讨论的方法，有时候一些辅助手段也能起到意外的效果。佛手柑和薄荷等香气有助于清新思绪，可能帮助平复烦躁情绪。当然，找到适合你的方式才是最重要的，无论是通过对话、反思还是其他途径。'
+                return '经过我们这段时间的交流，我更能理解你愤怒背后的原因了。处理这种强烈情绪时，找到适合你的方式才是最重要的，无论是通过对话、反思还是其他途径。你有没有发现什么特别有效的方法？'
             elif emotion == '快乐':
-                return '很高兴看到你一直保持着积极的心态！这种快乐情绪确实很珍贵。为了延续这种美好状态，除了我们聊过的方法，你可能也会对一些能增强愉悦感的香气感兴趣，比如柑橘类的柠檬或橙子。这些充满活力的香气与你现在的积极情绪非常匹配。无论如何，希望你的好心情能持续下去！'
+                return '很高兴看到你一直保持着积极的心态！这种快乐情绪确实很珍贵。希望你的好心情能持续下去！你有什么计划来延续这种积极状态吗？'
             elif emotion == '疲惫':
-                return '通过我们的交流，我能感受到你确实需要好好休息和恢复。除了我们讨论的放松和自我照顾方法，一些提神醒脑的辅助手段可能也有帮助。薄荷和迷迭香的香气以其振奋精神的特性而知名，可能帮助你对抗疲惫感。无论你选择什么方式，记得给自己足够的时间和空间来恢复能量。'
+                return '通过我们的交流，我能感受到你确实需要好好休息和恢复。无论你选择什么方式，记得给自己足够的时间和空间来恢复能量。有什么我能帮助你的吗？'
             else:
-                return '感谢你一直以来的分享和信任。经过这段时间的交流，我想我们都对你的情况有了更深入的了解。有时候，适当的外部辅助也能带来不同的体验。根据我们的对话内容，一些温和的香薰产品可能适合你现在的状态，无论是帮助放松还是提升情绪。你对这方面有什么特别感兴趣的吗？'
+                return '感谢你一直以来的分享和信任。经过这段时间的交流，我想我们都对你的情况有了更深入的了解。你对我们接下来的对话有什么期望或想法吗？'
         elif persona == 'motivational':
-            return '通过我们这段时间的交流，我真的被你的毅力和进步所感动！为了进一步增强这种积极的状态，我想向你推荐一些能量型的香薰，比如含有柠檬或薄荷成分的产品。这些充满活力的香气可能会给你带来额外的动力，帮助你继续迎接挑战！记住，每一小步的前进都是值得庆祝的成就。'
+            return '通过我们这段时间的交流，我真的被你的毅力和进步所感动！记住，每一小步的前进都是值得庆祝的成就。你已经取得了很大的进步，接下来有什么新的目标想要实现吗？'
         elif persona == 'analytical':
-            return '基于我们之前的多次分析和讨论，我认为我们已经对情况有了较为清晰的理解。在考虑各种因素的基础上，我想补充一点关于环境影响的思考。某些特定的香薰成分，如薰衣草用于放松，或薄荷用于提神，可能会对整体的情绪状态产生辅助作用。这不是主要的解决方案，但作为环境因素的一部分，值得考虑如何利用它们来优化你的生活空间和情绪体验。'
-            return '基于我们之前的多次分析和讨论，我认为我们已经对情况有了较为清晰的理解。在考虑各种因素的基础上，我想补充一点关于环境影响的思考。某些特定的香薰成分，如薰衣草用于放松，或薄荷用于提神，可能会对整体的情绪状态产生辅助作用。这不是主要的解决方案，但作为环境因素的一部分，值得考虑如何利用它们来优化你的生活空间和情绪体验。'
+            return '基于我们之前的多次分析和讨论，我认为我们已经对情况有了较为清晰的理解。在考虑各种因素的基础上，我们可以制定一个更系统的方法来应对当前的挑战。你觉得我们应该从哪个方面入手？'
         elif persona == 'mindful':
-            return '在我们的多次正念练习和交流中，我注意到你对当下体验的觉知已经有了显著的提升。为了进一步丰富这种体验，你可能会对香熏冥想感兴趣。特定的香气，如檀香或乳香，历来被用于加深冥想体验，帮助锚定意识。当然，这只是一种辅助工具，真正的平静来自于你内在的觉知和接纳。继续保持这种美好的觉察，让每一刻都充满意义。'
+            return '在我们的多次正念练习和交流中，我注意到你对当下体验的觉知已经有了显著的提升。真正的平静来自于你内在的觉知和接纳。继续保持这种美好的觉察，让每一刻都充满意义。你最近有什么新的体会吗？'
         else:
-            return '通过我们这段时间的深入交流，我对你的情况和需求有了更全面的理解。在这个阶段，我想向你介绍一些可能有益的香薰产品，作为我们讨论的情感管理方法的补充。不同的香薰成分有着不同的特性，从舒缓情绪的薰衣草到提神醒脑的薄荷，选择适合你当前状态的可能会带来意想不到的帮助。你对这方面有什么特别的喜好或疑问吗？'
+            return '通过我们这段时间的深入交流，我对你的情况和需求有了更全面的理解。你有什么新的想法或感受想要分享吗？我很期待听到你的更多故事。'
 
 def generate_reply_with_spark(message, emotion, persona, dialog_turns=0, user_preferences=None):
     """使用讯飞星火API生成回复"""
@@ -663,12 +674,11 @@ def generate_reply_with_spark(message, emotion, persona, dialog_turns=0, user_pr
         
         # 添加系统提示
         system_prompt = (
-            "你是一名资深的心理愈疗师，专注于情感分析和香薰疗法。你的目标是：\n"
+            "你是一名资深的心理愈疗师，专注于情感分析和心理支持。你的目标是：\n"
             "1. 深入理解用户的情绪状态，不仅是当前对话中表达的，还包括潜在的情绪变化和模式\n"
             "2. 建立用户的情绪档案，记住他们的情绪偏好、触发因素和应对方式\n"
-            "3. 提供个性化的香薰产品推荐，解释为什么特定产品适合用户当前的情绪状态\n"
-            "4. 通过多轮对话逐渐深入了解用户，建立信任关系\n"
-            "5. 主动引导对话，但保持自然和共情\n\n"
+            "3. 通过多轮对话逐渐深入了解用户，建立信任关系\n"
+            "4. 主动引导对话，但保持自然和共情\n\n"
         )
         
         # 根据对话轮数调整提示内容
@@ -678,9 +688,8 @@ def generate_reply_with_spark(message, emotion, persona, dialog_turns=0, user_pr
                 "1. 通过开放性问题了解用户的情绪状态和基本情况\n"
                 "2. 建立初步的信任关系和情感连接\n"
                 "3. 表现出充分的同理心，让用户感到被理解和接纳\n"
-                "4. 不要询问香薰相关话题或偏好，专注于用户的情感体验\n"
+                "4. 专注于用户的情感体验\n"
                 "5. 鼓励用户分享更多关于当前情绪的具体细节和背景\n"
-                "6. 严格禁止在此阶段推荐任何香薰产品\n"
             )
         elif dialog_turns >= 3 and dialog_turns < 7:
             system_prompt += (
@@ -688,25 +697,17 @@ def generate_reply_with_spark(message, emotion, persona, dialog_turns=0, user_pr
                 "1. 深入探讨用户情绪背后的原因和模式\n"
                 "2. 提供有针对性的情感支持和应对策略建议\n"
                 "3. 展示对用户个人经历的记忆和理解\n"
-                "4. 不要主动提及香薰产品，而是专注于用户的具体情况\n"
+                "4. 专注于用户的具体情况\n"
                 "5. 促进用户的自我觉察和情绪成长\n"
-                "6. 严格禁止在此阶段推荐任何香薰产品\n"
             )
         else:
             system_prompt += (
-                "由于对话已进行7轮以上，这是推荐整合阶段，你可以：\n"
+                "由于对话已进行7轮以上，这是深入支持阶段，你可以：\n"
                 "1. 整合前面交流获得的信息，提供个性化的支持\n"
-                "2. 基于深入了解的用户情况，适当提供香薰建议\n"
-                "3. 解释为什么特定香薰成分可能对用户当前情绪有帮助\n"
-                "4. 确保香薰建议是辅助性的，不要喧宾夺主\n"
-                "5. 继续表现出高度的同理心和情感支持\n"
+                "2. 基于深入了解的用户情况，提供更有针对性的建议\n"
+                "3. 继续表现出高度的同理心和情感支持\n"
+                "4. 帮助用户制定具体的情绪管理策略\n"
             )
-            
-            # 添加用户偏好信息（如果有）
-            if user_preferences and (user_preferences.get('scents') or user_preferences.get('aromatherapy_types')):
-                pref_scents = ", ".join(user_preferences.get('scents', [])) or "未知"
-                pref_types = ", ".join(user_preferences.get('aromatherapy_types', [])) or "未知"
-                system_prompt += f"\n用户偏好信息：\n- 喜欢的香气：{pref_scents}\n- 喜欢的香薰类型：{pref_types}\n"
         
         messages.append({"role": "system", "content": system_prompt})
         
@@ -812,28 +813,6 @@ def generate_reply_with_spark(message, emotion, persona, dialog_turns=0, user_pr
         if not reply or "抱歉，我暂时无法回答您的问题" in reply:
             current_app.logger.warning("讯飞星火API返回空响应或错误消息，使用本地回复生成")
             return generate_reply(message, emotion, persona, dialog_turns, user_preferences)
-        
-        # 在对话的前7轮，检测并过滤香薰推荐内容
-        if dialog_turns < 7:
-            # 检测是否包含香薰推荐关键词
-            aromatherapy_keywords = [
-                "精油", "香薰", "薰衣草", "香氛", "扩香", "蜡烛", "香气", "成分", 
-                "依兰", "甜橙", "迷迭香", "柑橘", "檀香", "茉莉", "木质", "草本",
-                "推荐以下", "建议使用", "可以考虑", "可以使用", "可以选择", "香味", "放松效果"
-            ]
-            
-            # 检查回复是否涉及推荐
-            contains_aromatherapy = False
-            for keyword in aromatherapy_keywords:
-                if keyword in reply:
-                    contains_aromatherapy = True
-                    current_app.logger.warning(f"API回复在早期对话阶段({dialog_turns}轮)包含香薰关键词: {keyword}")
-                    break
-            
-            # 如果包含推荐关键词，使用本地生成的回复替代
-            if contains_aromatherapy:
-                current_app.logger.info("API回复在早期阶段包含香薰内容，使用本地回复替代")
-                return generate_reply(message, emotion, persona, dialog_turns, user_preferences)
         
         return reply
     except Exception as e:

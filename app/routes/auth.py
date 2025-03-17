@@ -72,7 +72,16 @@ def login():
     db.session.commit()
     
     if is_ajax:
-        return jsonify({'success': True, 'message': '登录成功', 'next': next_url or url_for('main.index')})
+        # 返回完整的用户信息
+        user_data = {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'avatar': user.avatar or '/static/img/default_avatar.png',
+            'created_at': user.created_at.isoformat() if user.created_at else None,
+            'last_login': user.last_login.isoformat() if user.last_login else None
+        }
+        return jsonify({'success': True, 'message': '登录成功', 'user': user_data, 'next': next_url or url_for('main.index')})
     
     flash('登录成功', 'success')
     

@@ -1,339 +1,349 @@
 <!DOCTYPE html>
 <html lang="zh-CN" data-theme="light">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="csrf-token" content="{{ csrf_token() }}" />
     <title>情绪愈疗助手</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/styles.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
-        /* 防止文本选择和光标问题 */
-        .modal-content {
-            user-select: none;
-        }
-        
-        .modal-content label {
-            cursor: default;
-        }
-        
-        .auth-tabs {
-            cursor: default;
-        }
-        
-        .auth-tab {
-            cursor: pointer;
-        }
-        
-        .remember-checkbox label {
-            cursor: pointer;
-        }
-        
-        .forgot-password {
-            cursor: pointer;
-        }
-        
-        /* 调整注册表单和按钮位置 */
-        .register-form .form-group {
-            margin-bottom: 15px;
-        }
-        
-        .register-form .auth-button-submit {
-            margin-top: 15px;
-            margin-bottom: 5px;
-        }
-        
-        .register-form .password-input {
-            margin-bottom: 5px;
-        }
-        
-        /* 聊天区域滑动条样式 */
-        .chat-messages {
-            max-height: calc(100vh - 200px);
-            overflow-y: auto;
-            scrollbar-width: thin;
-            scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-        }
-        
-        /* 自定义滑动条样式 - Webkit浏览器 */
-        .chat-messages::-webkit-scrollbar {
-            width: 6px;
-        }
-        
-        .chat-messages::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        
-        .chat-messages::-webkit-scrollbar-thumb {
-            background-color: rgba(0, 0, 0, 0.2);
-            border-radius: 10px;
-        }
-        
-        /* 深色模式下的滑动条 */
-        [data-theme="dark"] .chat-messages::-webkit-scrollbar-thumb {
-            background-color: rgba(255, 255, 255, 0.2);
-        }
-        
-        [data-theme="dark"] .chat-messages {
-            scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-        }
-        
-        /* 确保模态框只能通过关闭按钮关闭 */
-        .modal {
-            pointer-events: none !important;
-            z-index: 1000 !important;
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            bottom: 0 !important;
-            width: 100% !important;
-            height: 100% !important;
-            display: none;
-            justify-content: center;
-            align-items: center;
-        }
-        
-        .modal.active {
-            display: flex !important;
-        }
-        
-        .modal-content, .close-modal {
-            pointer-events: auto !important;
-            position: relative;
-            z-index: 1001 !important;
-        }
-        
-        /* 关闭按钮样式 - 移动到右上角 */
-        .close-modal {
-            position: absolute !important;
-            top: 10px !important;
-            right: 10px !important;
-            font-size: 24px !important;
-            cursor: pointer !important;
-            z-index: 1002 !important;
-            width: 30px !important;
-            height: 30px !important;
-            display: flex !important;
-            justify-content: center !important;
-            align-items: center !important;
-            background-color: rgba(255, 255, 255, 0.8) !important;
-            border-radius: 50% !important;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2) !important;
-        }
-        
-        .close-modal:hover {
-            background-color: rgba(255, 255, 255, 1) !important;
-            transform: scale(1.1) !important;
-        }
-        
-        /* 模态框遮罩层，阻止下层UI交互 */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            width: 100vw;
-            height: 100vh;
-            background-color: rgba(0, 0, 0, 0.5);
-            z-index: 999;
-            pointer-events: all !important;
-            cursor: default;
-            touch-action: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-        
-        .modal-overlay.active {
-            display: block;
-        }
-        
-        /* 当遮罩层激活时，禁用页面滚动 */
-        body.modal-open {
-            overflow: hidden;
-            touch-action: none;
-        }
-        
-        /* 用户菜单样式 */
-        .user-menu-toggle {
-            cursor: pointer !important;
-            z-index: 10 !important;
-            pointer-events: auto !important;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 24px;
-            height: 24px;
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: 50%;
-            transition: background-color 0.2s;
-        }
-        
-        .user-menu-toggle:hover {
-            background-color: rgba(0, 0, 0, 0.1);
-        }
-        
-        .user-menu-toggle i {
-            pointer-events: none; /* 确保图标不会阻止点击事件 */
-        }
-        
-        .user-menu {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            width: 100%;
-            background-color: var(--bg-color);
-            border-radius: 8px;
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-            z-index: 100 !important;
-            display: none;
-            pointer-events: auto !important;
-            margin-top: 5px;
-            overflow: hidden;
-            border: 1px solid rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
-        }
-        
-        /* 深色模式下的用户菜单 */
-        [data-theme="dark"] .user-menu {
-            background-color: #2a2a2a;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
-        }
-        
-        .user-menu.active {
-            display: block !important;
-        }
-        
-        .user-menu ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        
-        .user-menu li {
-            padding: 10px 15px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            color: var(--text-color);
-            font-weight: 500;
-        }
-        
-        .user-menu li:hover {
-            background-color: rgba(0, 0, 0, 0.05);
-        }
-        
-        [data-theme="dark"] .user-menu li:hover {
-            background-color: rgba(255, 255, 255, 0.05);
-        }
-        
-        .user-menu li i {
-            width: 16px;
-            text-align: center;
-        }
-        
-        .user-profile {
-            position: relative;
-            z-index: 10 !important;
-            pointer-events: auto !important;
-            display: flex;
-            align-items: center;
-            padding: 10px;
-            border-radius: 8px;
-            transition: background-color 0.2s;
-        }
-        
-        .user-profile:hover {
-            background-color: rgba(0, 0, 0, 0.02);
-        }
-        
-        /* 头像上传相关样式 */
-        .profile-avatar {
-            position: relative;
-            width: 120px;
-            height: 120px;
-            margin: 0 auto 20px;
-            border-radius: 50%;
-            overflow: hidden;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-        }
-        
-        .profile-avatar img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transition: opacity 0.3s;
-        }
-        
-        .avatar-upload {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 40px;
-            background-color: rgba(0, 0, 0, 0.6);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            opacity: 0;
-            transition: opacity 0.3s;
-            cursor: pointer;
-        }
-        
-        .profile-avatar:hover .avatar-upload {
-            opacity: 1;
-        }
-        
-        .avatar-upload i {
-            color: white;
-            font-size: 18px;
-        }
-        
-        .avatar-upload input[type="file"] {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            opacity: 0;
-            cursor: pointer;
-        }
-        
-        .avatar-loading {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background-color: rgba(255, 255, 255, 0.7);
-            border-radius: 50%;
-            z-index: 5;
-        }
-        
-        .avatar-loading i {
-            font-size: 24px;
-            color: var(--primary-color);
-        }
-        
-        [data-theme="dark"] .avatar-loading {
-            background-color: rgba(0, 0, 0, 0.7);
-        }
-        
-        [data-theme="dark"] .avatar-loading i {
-            color: var(--accent-color);
-        }
+      /* 防止文本选择和光标问题 */
+      .modal-content {
+        user-select: none;
+      }
+
+      .modal-content label {
+        cursor: default;
+      }
+
+      .auth-tabs {
+        cursor: default;
+      }
+
+      .auth-tab {
+        cursor: pointer;
+      }
+
+      .remember-checkbox label {
+        cursor: pointer;
+      }
+
+      .forgot-password {
+        cursor: pointer;
+      }
+
+      /* 调整注册表单和按钮位置 */
+      .register-form .form-group {
+        margin-bottom: 15px;
+      }
+
+      .register-form .auth-button-submit {
+        margin-top: 15px;
+        margin-bottom: 5px;
+      }
+
+      .register-form .password-input {
+        margin-bottom: 5px;
+      }
+
+      /* 聊天区域滑动条样式 */
+      .chat-messages {
+        max-height: calc(100vh - 200px);
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+      }
+
+      /* 自定义滑动条样式 - Webkit浏览器 */
+      .chat-messages::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .chat-messages::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .chat-messages::-webkit-scrollbar-thumb {
+        background-color: rgba(0, 0, 0, 0.2);
+        border-radius: 10px;
+      }
+
+      /* 深色模式下的滑动条 */
+      [data-theme="dark"] .chat-messages::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.2);
+      }
+
+      [data-theme="dark"] .chat-messages {
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+      }
+
+      /* 确保模态框只能通过关闭按钮关闭 */
+      .modal {
+        pointer-events: none !important;
+        z-index: 1000 !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        display: none;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .modal.active {
+        display: flex !important;
+      }
+
+      .modal-content,
+      .close-modal {
+        pointer-events: auto !important;
+        position: relative;
+        z-index: 1001 !important;
+      }
+
+      /* 关闭按钮样式 - 移动到右上角 */
+      .close-modal {
+        position: absolute !important;
+        top: 10px !important;
+        right: 10px !important;
+        font-size: 24px !important;
+        cursor: pointer !important;
+        z-index: 1002 !important;
+        width: 30px !important;
+        height: 30px !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        background-color: rgba(255, 255, 255, 0.8) !important;
+        border-radius: 50% !important;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2) !important;
+      }
+
+      .close-modal:hover {
+        background-color: rgba(255, 255, 255, 1) !important;
+        transform: scale(1.1) !important;
+      }
+
+      /* 模态框遮罩层，阻止下层UI交互 */
+      .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 999;
+        pointer-events: all !important;
+        cursor: default;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .modal-overlay.active {
+        display: block;
+      }
+
+      /* 当遮罩层激活时，禁用页面滚动 */
+      body.modal-open {
+        overflow: hidden;
+        touch-action: none;
+      }
+
+      /* 用户菜单样式 */
+      .user-menu-toggle {
+        cursor: pointer !important;
+        z-index: 10 !important;
+        pointer-events: auto !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        background-color: rgba(0, 0, 0, 0.05);
+        border-radius: 50%;
+        transition: background-color 0.2s;
+      }
+
+      .user-menu-toggle:hover {
+        background-color: rgba(0, 0, 0, 0.1);
+      }
+
+      .user-menu-toggle i {
+        pointer-events: none; /* 确保图标不会阻止点击事件 */
+      }
+
+      .user-menu {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        width: 100%;
+        background-color: var(--bg-color);
+        border-radius: 8px;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+        z-index: 100 !important;
+        display: none;
+        pointer-events: auto !important;
+        margin-top: 5px;
+        overflow: hidden;
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        backdrop-filter: blur(10px);
+      }
+
+      /* 深色模式下的用户菜单 */
+      [data-theme="dark"] .user-menu {
+        background-color: #2a2a2a;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+      }
+
+      .user-menu.active {
+        display: block !important;
+      }
+
+      .user-menu ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      .user-menu li {
+        padding: 10px 15px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-color);
+        font-weight: 500;
+      }
+
+      .user-menu li:hover {
+        background-color: rgba(0, 0, 0, 0.05);
+      }
+
+      [data-theme="dark"] .user-menu li:hover {
+        background-color: rgba(255, 255, 255, 0.05);
+      }
+
+      .user-menu li i {
+        width: 16px;
+        text-align: center;
+      }
+
+      .user-profile {
+        position: relative;
+        z-index: 10 !important;
+        pointer-events: auto !important;
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        border-radius: 8px;
+        transition: background-color 0.2s;
+      }
+
+      .user-profile:hover {
+        background-color: rgba(0, 0, 0, 0.02);
+      }
+
+      /* 头像上传相关样式 */
+      .profile-avatar {
+        position: relative;
+        width: 120px;
+        height: 120px;
+        margin: 0 auto 20px;
+        border-radius: 50%;
+        overflow: hidden;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      .profile-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: opacity 0.3s;
+      }
+
+      .avatar-upload {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 40px;
+        background-color: rgba(0, 0, 0, 0.6);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        opacity: 0;
+        transition: opacity 0.3s;
+        cursor: pointer;
+      }
+
+      .profile-avatar:hover .avatar-upload {
+        opacity: 1;
+      }
+
+      .avatar-upload i {
+        color: white;
+        font-size: 18px;
+      }
+
+      .avatar-upload input[type="file"] {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+      }
+
+      .avatar-loading {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: rgba(255, 255, 255, 0.7);
+        border-radius: 50%;
+        z-index: 5;
+      }
+
+      .avatar-loading i {
+        font-size: 24px;
+        color: var(--primary-color);
+      }
+
+      [data-theme="dark"] .avatar-loading {
+        background-color: rgba(0, 0, 0, 0.7);
+      }
+
+      [data-theme="dark"] .avatar-loading i {
+        color: var(--accent-color);
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <!-- 加载动画 -->
     <div class="loader-container" id="loaderContainer">
-        <div class="loader"></div>
+      <div class="loader"></div>
     </div>
 
     <!-- 模态框遮罩层 -->
@@ -341,758 +351,944 @@
 
     <!-- 主题切换按钮 -->
     <div class="theme-toggle" id="themeToggle">
-        <i class="fas fa-moon"></i>
+      <i class="fas fa-moon"></i>
     </div>
 
     <!-- 登录/注册按钮 -->
     <div class="auth-button" id="authButton">
-        <i class="fas fa-user"></i>
-        <span>登录/注册</span>
+      <i class="fas fa-user"></i>
+      <span>登录/注册</span>
     </div>
 
     <div class="app-container">
-        <!-- 侧边栏 - 人设选择 -->
-        <aside class="sidebar">
-            <div class="logo">
-                <h1>情绪愈疗助手</h1>
-            </div>
-            
-            <!-- 用户信息区域 (登录后显示) -->
-            <div class="user-profile" id="userProfile" style="display: none;">
-                <div class="user-avatar">
-                    <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="用户头像">
-                </div>
-                <div class="user-info">
-                    <h3 class="user-name">用户名</h3>
-                    <p class="user-email">user@example.com</p>
-                </div>
-                <div class="user-menu-toggle">
-                    <i class="fas fa-chevron-down"></i>
-                </div>
-                
-                <!-- 用户菜单 -->
-                <div class="user-menu">
-                    <ul>
-                        <li><i class="fas fa-user-circle"></i> 个人资料</li>
-                        <li><i class="fas fa-sign-out-alt"></i> 退出登录</li>
-                    </ul>
-                </div>
-            </div>
-            
-            <!-- 聊天会话列表 (登录后显示) -->
-            <div class="chat-sessions" id="chatSessions" style="display: none;">
-                <div class="chat-sessions-header">
-                    <h2>对话历史</h2>
-                    <button id="newSessionBtn" class="new-session-btn">
-                        <i class="fas fa-plus"></i> 新对话
-                    </button>
-                </div>
-                <div class="chat-sessions-list" id="chatSessionsList">
-                    <!-- 会话列表将通过JS动态添加 -->
-                </div>
-            </div>
-            
-            <div class="persona-selector">
-                <h2>选择人设</h2>
-                <div class="current-persona-container">
-                    <div class="current-persona" id="currentPersona">
-                        <div class="persona-avatar">
-                            <img src="https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="共情型助手" id="currentPersonaAvatar">
-                        </div>
-                        <div class="persona-info">
-                            <h3 id="currentPersonaName">共情型助手</h3>
-                            <p id="currentPersonaDesc">温暖理解，感同身受</p>
-                        </div>
-                        <div class="persona-dropdown-toggle">
-                            <i class="fas fa-chevron-down"></i>
-                        </div>
-                    </div>
-                    <div class="persona-dropdown" id="personaDropdown">
-                        <div class="persona-option" data-persona="empathetic">
-                            <div class="persona-avatar">
-                                <img src="https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="共情型助手">
-                            </div>
-                            <div class="persona-info">
-                                <h3>共情型助手</h3>
-                                <p>温暖理解，感同身受</p>
-                            </div>
-                        </div>
-                        <div class="persona-option" data-persona="motivational">
-                            <div class="persona-avatar">
-                                <img src="https://images.unsplash.com/photo-1580489944761-15a19d654956?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="激励型助手">
-                            </div>
-                            <div class="persona-info">
-                                <h3>激励型助手</h3>
-                                <p>积极向上，鼓舞人心</p>
-                            </div>
-                        </div>
-                        <div class="persona-option" data-persona="analytical">
-                            <div class="persona-avatar">
-                                <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="分析型助手">
-                            </div>
-                            <div class="persona-info">
-                                <h3>分析型助手</h3>
-                                <p>理性分析，提供见解</p>
-                            </div>
-                        </div>
-                        <div class="persona-option" data-persona="mindful">
-                            <div class="persona-avatar">
-                                <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="正念型助手">
-                            </div>
-                            <div class="persona-info">
-                                <h3>正念型助手</h3>
-                                <p>专注当下，平静心灵</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="emotion-display">
-                <h2>情绪状态</h2>
-                <div class="current-emotion">
-                    <div class="emotion-icon">
-                        <i class="fas fa-smile"></i>
-                    </div>
-                    <div class="emotion-label">平静</div>
-                    <div class="emotion-description">您当前的情绪状态看起来很平静</div>
-                </div>
-            </div>
-        </aside>
+      <!-- 侧边栏 - 人设选择 -->
+      <aside class="sidebar">
+        <div class="logo">
+          <h1>情绪愈疗助手</h1>
+        </div>
 
-        <!-- 主内容区 - 聊天界面 -->
-        <main class="main-content">
-            <div class="chat-container">
-                <div class="chat-messages" id="chatMessages">
-                    <!-- 消息将通过JS动态添加 -->
-                    <div class="message assistant">
-                        <div class="message-avatar">
-                            <img src="https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="助手头像">
-                        </div>
-                        <div class="message-content">
-                            <p>你好！我是你的情绪愈疗助手。今天感觉如何？有什么想和我分享的吗？</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="chat-input">
-                    <textarea id="messageInput" placeholder="输入你的消息..." rows="1"></textarea>
-                    <button id="sendButton" class="send-button">
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
-                </div>
-            </div>
-        </main>
+        <!-- 用户信息区域 (登录后显示) -->
+        <div class="user-profile" id="userProfile" style="display: none">
+          <div class="user-avatar">
+            <img
+              src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60"
+              alt="用户头像"
+            />
+          </div>
+          <div class="user-info">
+            <h3 class="user-name">用户名</h3>
+            <p class="user-email">user@example.com</p>
+          </div>
+          <div class="user-menu-toggle">
+            <i class="fas fa-chevron-down"></i>
+          </div>
 
-        <!-- 右侧边栏 - 香薰推荐 -->
-        <aside class="recommendations">
-            <h2>为你推荐的香薰</h2>
-            <div class="recommendation-cards">
-                <!-- 推荐卡片将通过JS动态添加 -->
+          <!-- 用户菜单 -->
+          <div class="user-menu">
+            <ul>
+              <li><i class="fas fa-user-circle"></i> 个人资料</li>
+              <li><i class="fas fa-sign-out-alt"></i> 退出登录</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 聊天会话列表 (登录后显示) -->
+        <div class="chat-sessions" id="chatSessions">
+          <div class="chat-sessions-header">
+            <h2>对话历史</h2>
+            <button id="newSessionBtn" class="new-session-btn">
+              <i class="fas fa-plus"></i> 新对话
+            </button>
+          </div>
+          <div class="chat-sessions-list" id="chatSessionsList">
+            <!-- 会话列表将通过JS动态添加 -->
+          </div>
+        </div>
+
+        <div class="persona-selector">
+          <h2>选择人设</h2>
+          <div class="current-persona-container">
+            <div class="current-persona" id="currentPersona">
+              <div class="persona-avatar">
+                <img
+                  src="https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60"
+                  alt="共情型助手"
+                  id="currentPersonaAvatar"
+                />
+              </div>
+              <div class="persona-info">
+                <h3 id="currentPersonaName">共情型助手</h3>
+                <p id="currentPersonaDesc">温暖理解，感同身受</p>
+              </div>
+              <div class="persona-dropdown-toggle">
+                <i class="fas fa-chevron-down"></i>
+              </div>
             </div>
-        </aside>
+            <div class="persona-dropdown" id="personaDropdown">
+              <div class="persona-option" data-persona="empathetic">
+                <div class="persona-avatar">
+                  <img
+                    src="https://images.unsplash.com/photo-1573140247632-f8fd74997d5c?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60"
+                    alt="共情型助手"
+                  />
+                </div>
+                <div class="persona-info">
+                  <h3>共情型助手</h3>
+                  <p>温暖理解，感同身受</p>
+                </div>
+              </div>
+              <div class="persona-option" data-persona="motivational">
+                <div class="persona-avatar">
+                  <img
+                    src="https://images.unsplash.com/photo-1580489944761-15a19d654956?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60"
+                    alt="激励型助手"
+                  />
+                </div>
+                <div class="persona-info">
+                  <h3>激励型助手</h3>
+                  <p>积极向上，鼓舞人心</p>
+                </div>
+              </div>
+              <div class="persona-option" data-persona="analytical">
+                <div class="persona-avatar">
+                  <img
+                    src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60"
+                    alt="分析型助手"
+                  />
+                </div>
+                <div class="persona-info">
+                  <h3>分析型助手</h3>
+                  <p>理性分析，提供见解</p>
+                </div>
+              </div>
+              <div class="persona-option" data-persona="mindful">
+                <div class="persona-avatar">
+                  <img
+                    src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60"
+                    alt="正念型助手"
+                  />
+                </div>
+                <div class="persona-info">
+                  <h3>正念型助手</h3>
+                  <p>专注当下，内心平静</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="emotion-display">
+          <h2>情绪状态</h2>
+          <div class="current-emotion">
+            <div class="emotion-icon">
+              <i class="fas fa-smile"></i>
+            </div>
+            <div class="emotion-label">平静</div>
+            <div class="emotion-description">您当前的情绪状态看起来很平静</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 主内容区 - 聊天界面 -->
+      <main class="main-content">
+        <div class="chat-container">
+          <div class="chat-messages" id="chatMessages">
+            <!-- 消息将通过JS动态添加 -->
+          </div>
+          <div class="chat-input">
+            <textarea
+              id="messageInput"
+              placeholder="输入你的消息..."
+              rows="1"
+            ></textarea>
+            <button id="sendButton" class="send-button">
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          </div>
+        </div>
+      </main>
+
+      <!-- 右侧边栏 - 香薰推荐 -->
+      <aside class="recommendations">
+        <h2>为你推荐的香薰</h2>
+        <div class="recommendation-cards">
+          <!-- 推荐卡片将通过JS动态添加 -->
+        </div>
+      </aside>
     </div>
 
     <!-- 登录/注册模态框 -->
     <div class="modal" id="authModal">
-        <div class="modal-content auth-modal">
-            <span class="close-modal" id="closeAuthModal">&times;</span>
-            
-            <!-- 标签页导航 -->
-            <div class="auth-tabs">
-                <div class="auth-tab active" data-tab="login">登录</div>
-                <div class="auth-tab" data-tab="register">注册</div>
-            </div>
-            
-            <!-- 登录表单 -->
-            <div class="auth-form login-form active" id="loginForm">
-                <form id="loginFormElement" method="POST" action="{{ url_for('auth.login') }}" onsubmit="return handleLoginSubmit(event)">
-                    <!-- CSRF令牌 -->
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    
-                    <div class="form-group">
-                        <label for="loginEmail">邮箱/用户名</label>
-                        <input type="text" id="loginEmail" name="email" placeholder="请输入邮箱或用户名">
-                        <span class="form-error"></span>
-                    </div>
-                    <div class="form-group">
-                        <label for="loginPassword">密码</label>
-                        <div class="password-input">
-                            <input type="password" id="loginPassword" name="password" placeholder="请输入密码">
-                            <i class="fas fa-eye-slash toggle-password"></i>
-                        </div>
-                        <span class="form-error"></span>
-                    </div>
-                    <div class="form-group remember-me">
-                        <div class="remember-checkbox">
-                            <input type="checkbox" id="rememberMe" name="remember">
-                            <label for="rememberMe">记住我</label>
-                        </div>
-                        <a href="#" class="forgot-password">忘记密码?</a>
-                    </div>
-                    <button type="submit" class="auth-button-submit" id="loginSubmit">登录</button>
-                </form>
-            </div>
-            
-            <!-- 注册表单 -->
-            <div class="auth-form register-form" id="registerForm">
-                <form id="registerFormElement" method="POST" action="{{ url_for('auth.register') }}" onsubmit="return handleRegisterSubmit(event)">
-                    <!-- CSRF令牌 -->
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    
-                    <div class="form-group">
-                        <label for="registerUsername">用户名</label>
-                        <input type="text" id="registerUsername" name="username" placeholder="请输入用户名">
-                        <span class="form-error"></span>
-                    </div>
-                    <div class="form-group">
-                        <label for="registerEmail">邮箱</label>
-                        <input type="email" id="registerEmail" name="email" placeholder="请输入邮箱">
-                        <span class="form-error"></span>
-                    </div>
-                    <div class="form-group">
-                        <label for="registerPassword">密码</label>
-                        <div class="password-input">
-                            <input type="password" id="registerPassword" name="password" placeholder="请输入密码 (至少8位)">
-                            <i class="fas fa-eye-slash toggle-password"></i>
-                        </div>
-                        <span class="form-error"></span>
-                    </div>
-                    <div class="form-group">
-                        <label for="confirmPassword">确认密码</label>
-                        <div class="password-input">
-                            <input type="password" id="confirmPassword" name="confirm_password" placeholder="请再次输入密码">
-                            <i class="fas fa-eye-slash toggle-password"></i>
-                        </div>
-                        <span class="form-error"></span>
-                    </div>
-                    <button type="submit" class="auth-button-submit" id="registerSubmit">注册</button>
-                </form>
-            </div>
+      <div class="modal-content auth-modal">
+        <span class="close-modal" id="closeAuthModal">&times;</span>
+
+        <!-- 标签页导航 -->
+        <div class="auth-tabs">
+          <div class="auth-tab active" data-tab="login">登录</div>
+          <div class="auth-tab" data-tab="register">注册</div>
         </div>
+
+        <!-- 登录表单 -->
+        <div class="auth-form login-form active" id="loginForm">
+          <form
+            id="loginFormElement"
+            method="POST"
+            action="{{ url_for('auth.login') }}"
+            onsubmit="return handleLoginSubmit(event)"
+          >
+            <!-- CSRF令牌 -->
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+            <div class="form-group">
+              <label for="loginEmail">邮箱/用户名</label>
+              <input
+                type="text"
+                id="loginEmail"
+                name="email"
+                placeholder="请输入邮箱或用户名"
+              />
+              <span class="form-error"></span>
+            </div>
+            <div class="form-group">
+              <label for="loginPassword">密码</label>
+              <div class="password-input">
+                <input
+                  type="password"
+                  id="loginPassword"
+                  name="password"
+                  placeholder="请输入密码"
+                />
+                <i class="fas fa-eye-slash toggle-password"></i>
+              </div>
+              <span class="form-error"></span>
+            </div>
+            <div class="form-group remember-me">
+              <div class="remember-checkbox">
+                <input type="checkbox" id="rememberMe" name="remember" />
+                <label for="rememberMe">记住我</label>
+              </div>
+              <a href="#" class="forgot-password">忘记密码?</a>
+            </div>
+            <button type="submit" class="auth-button-submit" id="loginSubmit">
+              登录
+            </button>
+          </form>
+        </div>
+
+        <!-- 注册表单 -->
+        <div class="auth-form register-form" id="registerForm">
+          <form
+            id="registerFormElement"
+            method="POST"
+            action="{{ url_for('auth.register') }}"
+            onsubmit="return handleRegisterSubmit(event)"
+          >
+            <!-- CSRF令牌 -->
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+            <div class="form-group">
+              <label for="registerUsername">用户名</label>
+              <input
+                type="text"
+                id="registerUsername"
+                name="username"
+                placeholder="请输入用户名"
+              />
+              <span class="form-error"></span>
+            </div>
+            <div class="form-group">
+              <label for="registerEmail">邮箱</label>
+              <input
+                type="email"
+                id="registerEmail"
+                name="email"
+                placeholder="请输入邮箱"
+              />
+              <span class="form-error"></span>
+            </div>
+            <div class="form-group">
+              <label for="registerPassword">密码</label>
+              <div class="password-input">
+                <input
+                  type="password"
+                  id="registerPassword"
+                  name="password"
+                  placeholder="请输入密码 (至少8位)"
+                />
+                <i class="fas fa-eye-slash toggle-password"></i>
+              </div>
+              <span class="form-error"></span>
+            </div>
+            <div class="form-group">
+              <label for="confirmPassword">确认密码</label>
+              <div class="password-input">
+                <input
+                  type="password"
+                  id="confirmPassword"
+                  name="confirm_password"
+                  placeholder="请再次输入密码"
+                />
+                <i class="fas fa-eye-slash toggle-password"></i>
+              </div>
+              <span class="form-error"></span>
+            </div>
+            <button
+              type="submit"
+              class="auth-button-submit"
+              id="registerSubmit"
+            >
+              注册
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
 
     <!-- 个人资料模态框 -->
     <div class="modal" id="profileModal">
-        <div class="modal-content profile-modal">
-            <span class="close-modal" id="closeProfileModal">&times;</span>
-            <h2>个人资料</h2>
-            
-            <div class="profile-content">
-                <div class="profile-avatar">
-                    <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" alt="用户头像">
-                    <div class="avatar-upload">
-                        <i class="fas fa-camera"></i>
-                        <input type="file" id="avatarUpload" accept="image/*">
-                    </div>
-                </div>
-                
-                <div class="profile-form">
-                    <div class="form-group">
-                        <label for="profileUsername">用户名</label>
-                        <input type="text" id="profileUsername" value="用户名">
-                    </div>
-                    <div class="form-group">
-                        <label for="profileEmail">邮箱</label>
-                        <input type="email" id="profileEmail" value="user@example.com">
-                    </div>
-                    <div class="form-group">
-                        <label for="profilePassword">修改密码</label>
-                        <input type="password" id="profilePassword" placeholder="输入新密码">
-                    </div>
-                    
-                    <h3>个人便签</h3>
-                    <div class="user-tags">
-                        <div class="tag">
-                            <span>薰衣草</span>
-                            <i class="fas fa-times"></i>
-                        </div>
-                        <div class="tag">
-                            <span>放松</span>
-                            <i class="fas fa-times"></i>
-                        </div>
-                        <div class="tag">
-                            <span>助眠</span>
-                            <i class="fas fa-times"></i>
-                        </div>
-                        <div class="tag">
-                            <span>茉莉花</span>
-                            <i class="fas fa-times"></i>
-                        </div>
-                    </div>
-                    
-                    <button class="profile-save-button">保存更改</button>
-                </div>
+      <div class="modal-content profile-modal">
+        <span class="close-modal" id="closeProfileModal">&times;</span>
+        <h2>个人资料</h2>
+
+        <div class="profile-content">
+          <div class="profile-avatar">
+            <img
+              src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60"
+              alt="用户头像"
+            />
+            <div class="avatar-upload">
+              <i class="fas fa-camera"></i>
+              <input type="file" id="avatarUpload" accept="image/*" />
             </div>
+          </div>
+
+          <div class="profile-form">
+            <div class="form-group">
+              <label for="profileUsername">用户名</label>
+              <input type="text" id="profileUsername" value="用户名" />
+            </div>
+            <div class="form-group">
+              <label for="profileEmail">邮箱</label>
+              <input type="email" id="profileEmail" value="user@example.com" />
+            </div>
+            <div class="form-group">
+              <label for="profilePassword">修改密码</label>
+              <input
+                type="password"
+                id="profilePassword"
+                placeholder="输入新密码"
+              />
+            </div>
+
+            <h3>个人便签</h3>
+            <div class="user-tags">
+              <div class="tag">
+                <span>薰衣草</span>
+                <i class="fas fa-times"></i>
+              </div>
+              <div class="tag">
+                <span>放松</span>
+                <i class="fas fa-times"></i>
+              </div>
+              <div class="tag">
+                <span>助眠</span>
+                <i class="fas fa-times"></i>
+              </div>
+              <div class="tag">
+                <span>茉莉花</span>
+                <i class="fas fa-times"></i>
+              </div>
+            </div>
+
+            <button class="profile-save-button">保存更改</button>
+          </div>
         </div>
+      </div>
     </div>
 
     <!-- 产品详情模态框 -->
     <div class="modal" id="productModal">
-        <div class="modal-content">
-            <span class="close-modal">&times;</span>
-            <div class="product-details">
-                <!-- 产品详情将通过JS动态添加 -->
-            </div>
+      <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <div class="product-details">
+          <!-- 产品详情将通过JS动态添加 -->
         </div>
+      </div>
     </div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script>
-        // 防止表单外点击出现光标
-        document.addEventListener('click', function(e) {
-            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
-                // 如果点击的不是输入框，则取消任何可能的选择
-                if (window.getSelection) {
-                    window.getSelection().removeAllRanges();
-                }
-            }
+      // 防止表单外点击出现光标
+      document.addEventListener("click", function (e) {
+        if (e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
+          // 如果点击的不是输入框，则取消任何可能的选择
+          if (window.getSelection) {
+            window.getSelection().removeAllRanges();
+          }
+        }
+      });
+
+      // 打开模态框
+      window.openModal = function (modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+          modal.classList.add("active");
+          document.getElementById("modalOverlay").classList.add("active");
+          document.body.classList.add("modal-open");
+        }
+      };
+
+      // 关闭模态框
+      window.closeModal = function (modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+          modal.classList.remove("active");
+          document.getElementById("modalOverlay").classList.remove("active");
+          document.body.classList.remove("modal-open");
+        }
+      };
+
+      // 用户菜单交互 - 直接使用内联方式绑定事件
+      document.addEventListener("DOMContentLoaded", function () {
+        // 直接为用户菜单切换按钮添加点击事件
+        document
+          .querySelector(".user-menu-toggle")
+          .addEventListener("click", function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+            document.querySelector(".user-menu").classList.toggle("active");
+            console.log("用户菜单切换按钮被点击");
+          });
+
+        // 为用户菜单项添加点击事件
+        document
+          .querySelectorAll(".user-menu li")
+          .forEach(function (item, index) {
+            item.addEventListener("click", function (e) {
+              e.stopPropagation();
+              document.querySelector(".user-menu").classList.remove("active");
+
+              if (index === 0) {
+                // 个人资料
+                openModal("profileModal");
+              } else if (index === 1) {
+                // 退出登录
+                fetch("/auth/logout")
+                  .then((response) => response.json())
+                  .then((data) => {
+                    if (data.success) {
+                      window.location.reload();
+                    }
+                  });
+              }
+            });
+          });
+
+        // 点击页面其他区域关闭用户菜单
+        document.addEventListener("click", function () {
+          document.querySelector(".user-menu").classList.remove("active");
         });
-        
-        // 打开模态框
-        window.openModal = function(modalId) {
-            const modal = document.getElementById(modalId);
-            if (modal) {
-                modal.classList.add('active');
-                document.getElementById('modalOverlay').classList.add('active');
-                document.body.classList.add('modal-open');
-            }
-        }
-        
-        // 关闭模态框
-        window.closeModal = function(modalId) {
-            const modal = document.getElementById(modalId);
-            if (modal) {
-                modal.classList.remove('active');
-                document.getElementById('modalOverlay').classList.remove('active');
-                document.body.classList.remove('modal-open');
-            }
-        }
-        
-        // 用户菜单交互 - 直接使用内联方式绑定事件
-        document.addEventListener('DOMContentLoaded', function() {
-            // 直接为用户菜单切换按钮添加点击事件
-            document.querySelector('.user-menu-toggle').addEventListener('click', function(e) {
+      });
+
+      // 确保模态框只能通过关闭按钮关闭
+      document.addEventListener("DOMContentLoaded", function () {
+        // 为所有模态框添加样式，确保只能通过关闭按钮关闭
+        document.querySelectorAll(".modal").forEach((modal) => {
+          // 移除已有的点击事件监听器
+          const newModal = modal.cloneNode(true);
+          modal.parentNode.replaceChild(newModal, modal);
+
+          // 阻止模态框背景的点击事件
+          newModal.addEventListener(
+            "click",
+            function (e) {
+              e.stopPropagation();
+              e.preventDefault();
+              return false;
+            },
+            true
+          );
+
+          // 阻止模态框的所有默认行为
+          newModal.addEventListener(
+            "mousedown",
+            function (e) {
+              if (e.target === this) {
                 e.stopPropagation();
                 e.preventDefault();
-                document.querySelector('.user-menu').classList.toggle('active');
-                console.log('用户菜单切换按钮被点击');
-            });
-            
-            // 为用户菜单项添加点击事件
-            document.querySelectorAll('.user-menu li').forEach(function(item, index) {
-                item.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    document.querySelector('.user-menu').classList.remove('active');
-                    
-                    if (index === 0) { // 个人资料
-                        openModal('profileModal');
-                    } else if (index === 1) { // 退出登录
-                        fetch('/auth/logout')
-                            .then(response => response.json())
-                            .then(data => {
-                                if (data.success) {
-                                    window.location.reload();
-                                }
-                            });
-                    }
-                });
-            });
-            
-            // 点击页面其他区域关闭用户菜单
-            document.addEventListener('click', function() {
-                document.querySelector('.user-menu').classList.remove('active');
-            });
+                return false;
+              }
+            },
+            true
+          );
+
+          newModal.addEventListener(
+            "mouseup",
+            function (e) {
+              if (e.target === this) {
+                e.stopPropagation();
+                e.preventDefault();
+                return false;
+              }
+            },
+            true
+          );
+
+          // 添加触摸事件监听器
+          newModal.addEventListener(
+            "touchstart",
+            function (e) {
+              if (e.target === this) {
+                e.stopPropagation();
+                e.preventDefault();
+                return false;
+              }
+            },
+            true
+          );
+
+          newModal.addEventListener(
+            "touchmove",
+            function (e) {
+              if (e.target === this) {
+                e.stopPropagation();
+                e.preventDefault();
+                return false;
+              }
+            },
+            true
+          );
+
+          newModal.addEventListener(
+            "touchend",
+            function (e) {
+              if (e.target === this) {
+                e.stopPropagation();
+                e.preventDefault();
+                return false;
+              }
+            },
+            true
+          );
         });
-        
-        // 确保模态框只能通过关闭按钮关闭
-        document.addEventListener('DOMContentLoaded', function() {
-            // 为所有模态框添加样式，确保只能通过关闭按钮关闭
-            document.querySelectorAll('.modal').forEach(modal => {
-                // 移除已有的点击事件监听器
-                const newModal = modal.cloneNode(true);
-                modal.parentNode.replaceChild(newModal, modal);
-                
-                // 阻止模态框背景的点击事件
-                newModal.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    return false;
-                }, true);
-                
-                // 阻止模态框的所有默认行为
-                newModal.addEventListener('mousedown', function(e) {
-                    if (e.target === this) {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        return false;
-                    }
-                }, true);
-                
-                newModal.addEventListener('mouseup', function(e) {
-                    if (e.target === this) {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        return false;
-                    }
-                }, true);
-                
-                // 添加触摸事件监听器
-                newModal.addEventListener('touchstart', function(e) {
-                    if (e.target === this) {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        return false;
-                    }
-                }, true);
-                
-                newModal.addEventListener('touchmove', function(e) {
-                    if (e.target === this) {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        return false;
-                    }
-                }, true);
-                
-                newModal.addEventListener('touchend', function(e) {
-                    if (e.target === this) {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        return false;
-                    }
-                }, true);
-            });
-            
-            // 阻止遮罩层的点击事件传播
-            const modalOverlay = document.getElementById('modalOverlay');
-            if (modalOverlay) {
-                modalOverlay.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    return false;
-                }, true);
-                
-                // 确保遮罩层在模态框打开时始终显示在最上层
-                modalOverlay.addEventListener('mousedown', function(e) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    return false;
-                }, true);
-                
-                modalOverlay.addEventListener('mouseup', function(e) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    return false;
-                }, true);
-                
-                // 添加触摸事件监听器，确保在移动设备上也能阻止点击
-                modalOverlay.addEventListener('touchstart', function(e) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    return false;
-                }, true);
-                
-                modalOverlay.addEventListener('touchmove', function(e) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    return false;
-                }, true);
-                
-                modalOverlay.addEventListener('touchend', function(e) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    return false;
-                }, true);
+
+        // 阻止遮罩层的点击事件传播
+        const modalOverlay = document.getElementById("modalOverlay");
+        if (modalOverlay) {
+          modalOverlay.addEventListener(
+            "click",
+            function (e) {
+              e.stopPropagation();
+              e.preventDefault();
+              return false;
+            },
+            true
+          );
+
+          // 确保遮罩层在模态框打开时始终显示在最上层
+          modalOverlay.addEventListener(
+            "mousedown",
+            function (e) {
+              e.stopPropagation();
+              e.preventDefault();
+              return false;
+            },
+            true
+          );
+
+          modalOverlay.addEventListener(
+            "mouseup",
+            function (e) {
+              e.stopPropagation();
+              e.preventDefault();
+              return false;
+            },
+            true
+          );
+
+          // 添加触摸事件监听器，确保在移动设备上也能阻止点击
+          modalOverlay.addEventListener(
+            "touchstart",
+            function (e) {
+              e.stopPropagation();
+              e.preventDefault();
+              return false;
+            },
+            true
+          );
+
+          modalOverlay.addEventListener(
+            "touchmove",
+            function (e) {
+              e.stopPropagation();
+              e.preventDefault();
+              return false;
+            },
+            true
+          );
+
+          modalOverlay.addEventListener(
+            "touchend",
+            function (e) {
+              e.stopPropagation();
+              e.preventDefault();
+              return false;
+            },
+            true
+          );
+        }
+
+        // 重新绑定关闭按钮事件
+        document.querySelectorAll(".close-modal").forEach((closeBtn) => {
+          // 移除已有的点击事件监听器
+          const newBtn = closeBtn.cloneNode(true);
+          closeBtn.parentNode.replaceChild(newBtn, closeBtn);
+
+          newBtn.addEventListener("click", function () {
+            const modal = this.closest(".modal");
+            if (modal) {
+              closeModal(modal.id);
             }
-            
-            // 重新绑定关闭按钮事件
-            document.querySelectorAll('.close-modal').forEach(closeBtn => {
-                // 移除已有的点击事件监听器
-                const newBtn = closeBtn.cloneNode(true);
-                closeBtn.parentNode.replaceChild(newBtn, closeBtn);
-                
-                newBtn.addEventListener('click', function() {
-                    const modal = this.closest('.modal');
-                    if (modal) {
-                        closeModal(modal.id);
-                    }
-                });
-            });
-            
-            // 重新绑定标签页切换事件
-            document.querySelectorAll('.auth-tab').forEach(tab => {
-                tab.addEventListener('click', function() {
-                    const tabName = this.dataset.tab;
-                    
-                    // 更新标签页状态
-                    document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
-                    this.classList.add('active');
-                    
-                    // 更新表单显示
-                    if (tabName === 'login') {
-                        document.getElementById('loginForm').classList.add('active');
-                        document.getElementById('registerForm').classList.remove('active');
-                    } else {
-                        document.getElementById('loginForm').classList.remove('active');
-                        document.getElementById('registerForm').classList.add('active');
-                    }
-                });
-            });
-            
-            // 重新绑定密码显示/隐藏切换事件
-            document.querySelectorAll('.toggle-password').forEach(toggle => {
-                toggle.addEventListener('click', function() {
-                    const passwordInput = this.previousElementSibling;
-                    
-                    if (passwordInput.type === 'password') {
-                        passwordInput.type = 'text';
-                        this.classList.remove('fa-eye-slash');
-                        this.classList.add('fa-eye');
-                    } else {
-                        passwordInput.type = 'password';
-                        this.classList.remove('fa-eye');
-                        this.classList.add('fa-eye-slash');
-                    }
-                });
-            });
-            
-            // 重新绑定表单提交事件
-            const loginFormElement = document.getElementById('loginFormElement');
-            if (loginFormElement) {
-                loginFormElement.addEventListener('submit', handleLoginSubmit);
-            }
-            
-            const registerFormElement = document.getElementById('registerFormElement');
-            if (registerFormElement) {
-                registerFormElement.addEventListener('submit', handleRegisterSubmit);
-            }
-            
-            // 重新绑定登录/注册按钮点击事件
-            const authButton = document.getElementById('authButton');
-            if (authButton) {
-                authButton.addEventListener('click', function() {
-                    openModal('authModal');
-                });
-            }
-            
-            // 绑定新对话按钮事件
-            const newSessionBtn = document.getElementById('newSessionBtn');
-            if (newSessionBtn) {
-                console.log('找到新对话按钮，绑定点击事件');
-                newSessionBtn.addEventListener('click', function() {
-                    console.log('新对话按钮被点击');
-                    if (typeof createNewSession === 'function') {
-                        createNewSession();
-                    } else {
-                        console.error('createNewSession函数未定义');
-                    }
-                });
-            } else {
-                console.error('未找到新对话按钮元素');
-            }
+          });
         });
-        
-        // 处理登录表单提交
-        window.handleLoginSubmit = function(event) {
-            event.preventDefault(); // 阻止表单默认提交行为
-            
-            // 获取表单数据
-            const form = document.getElementById('loginFormElement');
-            const formData = new FormData(form);
-            
-            // 显示加载状态
-            const loginButton = document.getElementById('loginSubmit');
-            const originalText = loginButton.textContent;
-            loginButton.textContent = '登录中...';
-            loginButton.disabled = true;
-            
-            // 清除之前的错误信息
-            clearFormError('loginEmail');
-            clearFormError('loginPassword');
-            
-            // 发送AJAX请求
-            fetch(form.action, {
-                method: 'POST',
-                body: formData,
-                credentials: 'same-origin',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Accept': 'application/json'
-                }
-            })
-            .then(response => {
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        throw new Error('邮箱/用户名或密码错误');
-                    } else if (response.status === 403) {
-                        throw new Error('账户已被禁用');
-                    }
-                }
-                return response.json().catch(() => {
-                    // 如果JSON解析失败，返回一个默认对象
-                    return { success: false, message: '服务器响应格式错误' };
-                });
-            })
-            .then(data => {
-                if (data.success) {
-                    // 登录成功
-                    // 关闭模态框
-                    closeModal('authModal');
-                    
-                    // 刷新页面以更新用户状态
-                    window.location.reload();
-                } else {
-                    // 登录失败
-                    showFormError('loginEmail', data.message || '登录失败');
-                }
-            })
-            .catch(error => {
-                showFormError('loginEmail', error.message || '登录失败，请稍后再试');
-            })
-            .finally(() => {
-                // 恢复按钮状态
-                loginButton.textContent = originalText;
-                loginButton.disabled = false;
+
+        // 重新绑定标签页切换事件
+        document.querySelectorAll(".auth-tab").forEach((tab) => {
+          tab.addEventListener("click", function () {
+            const tabName = this.dataset.tab;
+
+            // 更新标签页状态
+            document
+              .querySelectorAll(".auth-tab")
+              .forEach((t) => t.classList.remove("active"));
+            this.classList.add("active");
+
+            // 更新表单显示
+            if (tabName === "login") {
+              document.getElementById("loginForm").classList.add("active");
+              document
+                .getElementById("registerForm")
+                .classList.remove("active");
+            } else {
+              document.getElementById("loginForm").classList.remove("active");
+              document.getElementById("registerForm").classList.add("active");
+            }
+          });
+        });
+
+        // 重新绑定密码显示/隐藏切换事件
+        document.querySelectorAll(".toggle-password").forEach((toggle) => {
+          toggle.addEventListener("click", function () {
+            const passwordInput = this.previousElementSibling;
+
+            if (passwordInput.type === "password") {
+              passwordInput.type = "text";
+              this.classList.remove("fa-eye-slash");
+              this.classList.add("fa-eye");
+            } else {
+              passwordInput.type = "password";
+              this.classList.remove("fa-eye");
+              this.classList.add("fa-eye-slash");
+            }
+          });
+        });
+
+        // 重新绑定表单提交事件
+        const loginFormElement = document.getElementById("loginFormElement");
+        if (loginFormElement) {
+          loginFormElement.addEventListener("submit", handleLoginSubmit);
+        }
+
+        const registerFormElement = document.getElementById(
+          "registerFormElement"
+        );
+        if (registerFormElement) {
+          registerFormElement.addEventListener("submit", handleRegisterSubmit);
+        }
+
+        // 重新绑定登录/注册按钮点击事件
+        const authButton = document.getElementById("authButton");
+        if (authButton) {
+          authButton.addEventListener("click", function () {
+            openModal("authModal");
+          });
+        }
+      });
+
+      // 处理登录表单提交
+      window.handleLoginSubmit = function (event) {
+        event.preventDefault(); // 阻止表单默认提交行为
+
+        // 获取表单数据
+        const form = document.getElementById("loginFormElement");
+        const formData = new FormData(form);
+
+        // 显示加载状态
+        const loginButton = document.getElementById("loginSubmit");
+        const originalText = loginButton.textContent;
+        loginButton.textContent = "登录中...";
+        loginButton.disabled = true;
+
+        // 清除之前的错误信息
+        clearFormError("loginEmail");
+        clearFormError("loginPassword");
+
+        // 发送AJAX请求
+        fetch(form.action, {
+          method: "POST",
+          body: formData,
+          credentials: "same-origin",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            Accept: "application/json",
+          },
+        })
+          .then((response) => {
+            if (!response.ok) {
+              if (response.status === 401) {
+                throw new Error("邮箱/用户名或密码错误");
+              } else if (response.status === 403) {
+                throw new Error("账户已被禁用");
+              }
+            }
+            return response.json().catch(() => {
+              // 如果JSON解析失败，返回一个默认对象
+              return { success: false, message: "服务器响应格式错误" };
             });
-            
-            return false; // 阻止表单提交
-        }
-        
-        // 处理注册表单提交
-        window.handleRegisterSubmit = function(event) {
-            event.preventDefault(); // 阻止表单默认提交行为
-            
-            // 获取表单数据
-            const form = document.getElementById('registerFormElement');
-            const formData = new FormData(form);
-            
-            // 表单验证
-            const username = formData.get('username');
-            const email = formData.get('email');
-            const password = formData.get('password');
-            const confirmPassword = formData.get('confirm_password');
-            
-            let isValid = true;
-            
-            if (!username) {
-                showFormError('registerUsername', '请输入用户名');
-                isValid = false;
-            } else {
-                clearFormError('registerUsername');
-            }
-            
-            if (!email) {
-                showFormError('registerEmail', '请输入邮箱');
-                isValid = false;
-            } else if (!isValidEmail(email)) {
-                showFormError('registerEmail', '请输入有效的邮箱地址');
-                isValid = false;
-            } else {
-                clearFormError('registerEmail');
-            }
-            
-            if (!password) {
-                showFormError('registerPassword', '请输入密码');
-                isValid = false;
-            } else if (password.length < 8) {
-                showFormError('registerPassword', '密码长度至少为8位');
-                isValid = false;
-            } else {
-                clearFormError('registerPassword');
-            }
-            
-            if (!confirmPassword) {
-                showFormError('confirmPassword', '请确认密码');
-                isValid = false;
-            } else if (confirmPassword !== password) {
-                showFormError('confirmPassword', '两次输入的密码不一致');
-                isValid = false;
-            } else {
-                clearFormError('confirmPassword');
-            }
-            
-            if (!isValid) return false;
-            
-            // 显示加载状态
-            const registerButton = document.getElementById('registerSubmit');
-            const originalText = registerButton.textContent;
-            registerButton.textContent = '注册中...';
-            registerButton.disabled = true;
-            
-            // 发送AJAX请求
-            fetch(form.action, {
-                method: 'POST',
-                body: formData,
-                credentials: 'same-origin',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Accept': 'application/json'
+          })
+          .then((data) => {
+            if (data.success) {
+              // 登录成功
+              // 关闭模态框
+              closeModal("authModal");
+
+              // 不刷新页面，直接更新UI
+              console.log("登录成功，更新UI...");
+              console.log("服务器返回的用户数据:", data.user);
+
+              // 设置登录状态和用户信息 - 直接设置app.js中的全局变量
+              isLoggedIn = true;
+              currentUser = data.user;
+              
+              // 确保用户数据完整
+              if (data.user) {
+                console.log("已设置当前用户:", currentUser);
+                
+                // 清空聊天区域，防止重复显示欢迎消息
+                const chatMessages = document.getElementById('chatMessages');
+                if (chatMessages) {
+                  chatMessages.innerHTML = '';
                 }
-            })
-            .then(response => {
-                return response.json().catch(() => {
-                    // 如果JSON解析失败，返回一个默认对象
-                    return { success: false, message: '服务器响应格式错误' };
-                });
-            })
-            .then(data => {
-                if (data.success) {
-                    // 注册成功
-                    alert(data.message || '注册成功，请查收确认邮件');
-                    
-                    // 切换到登录标签页
-                    document.querySelector('.auth-tab[data-tab="login"]').click();
-                    
-                    // 自动填充邮箱
-                    document.getElementById('loginEmail').value = email;
+                
+                // 确保全局变量被正确设置
+                if (typeof updateUIForLoggedInUser === 'function') {
+                  console.log("调用updateUIForLoggedInUser函数...");
+                  updateUIForLoggedInUser();
                 } else {
-                    // 注册失败
-                    showFormError('registerUsername', data.message || '注册失败');
+                  console.error("updateUIForLoggedInUser函数未定义");
                 }
-            })
-            .catch(error => {
-                showFormError('registerUsername', error.message || '注册失败，请稍后再试');
-            })
-            .finally(() => {
-                // 恢复按钮状态
-                registerButton.textContent = originalText;
-                registerButton.disabled = false;
+                
+                // 加载聊天会话列表
+                console.log("加载聊天会话列表...");
+                if (typeof loadChatSessions === 'function') {
+                  loadChatSessions();
+                } else {
+                  console.error("loadChatSessions函数未定义");
+                }
+                
+                // 确保聊天会话列表元素可见
+                const chatSessionsElement = document.getElementById("chatSessions");
+                if (chatSessionsElement) {
+                  console.log("确保聊天会话列表元素可见");
+                  chatSessionsElement.style.display = "block";
+                  
+                  // 强制显示，防止CSS样式冲突
+                  setTimeout(() => {
+                    chatSessionsElement.style.display = "block";
+                    console.log("再次确认聊天会话列表元素显示");
+                  }, 300);
+                } else {
+                  console.error("未找到chatSessions元素");
+                }
+                
+                // 重置加载状态，确保可以加载聊天历史
+                if (typeof isLoadingChatHistory !== 'undefined') {
+                  isLoadingChatHistory = false;
+                }
+                
+                // 加载聊天历史
+                setTimeout(() => {
+                  console.log("加载聊天历史...");
+                  if (typeof loadChatHistory === 'function') {
+                    loadChatHistory();
+                  } else {
+                    console.error("loadChatHistory函数未定义");
+                  }
+                }, 500);
+              } else {
+                console.error("服务器返回的用户数据不完整:", data);
+              }
+            } else {
+              // 登录失败
+              showFormError("loginEmail", data.message || "登录失败");
+            }
+          })
+          .catch((error) => {
+            showFormError(
+              "loginEmail",
+              error.message || "登录失败，请稍后再试"
+            );
+          })
+          .finally(() => {
+            // 恢复按钮状态
+            loginButton.textContent = originalText;
+            loginButton.disabled = false;
+          });
+
+        return false; // 阻止表单提交
+      };
+
+      // 处理注册表单提交
+      window.handleRegisterSubmit = function (event) {
+        event.preventDefault(); // 阻止表单默认提交行为
+
+        // 获取表单数据
+        const form = document.getElementById("registerFormElement");
+        const formData = new FormData(form);
+
+        // 表单验证
+        const username = formData.get("username");
+        const email = formData.get("email");
+        const password = formData.get("password");
+        const confirmPassword = formData.get("confirm_password");
+
+        let isValid = true;
+
+        if (!username) {
+          showFormError("registerUsername", "请输入用户名");
+          isValid = false;
+        } else {
+          clearFormError("registerUsername");
+        }
+
+        if (!email) {
+          showFormError("registerEmail", "请输入邮箱");
+          isValid = false;
+        } else if (!isValidEmail(email)) {
+          showFormError("registerEmail", "请输入有效的邮箱地址");
+          isValid = false;
+        } else {
+          clearFormError("registerEmail");
+        }
+
+        if (!password) {
+          showFormError("registerPassword", "请输入密码");
+          isValid = false;
+        } else if (password.length < 8) {
+          showFormError("registerPassword", "密码长度至少为8位");
+          isValid = false;
+        } else {
+          clearFormError("registerPassword");
+        }
+
+        if (!confirmPassword) {
+          showFormError("confirmPassword", "请确认密码");
+          isValid = false;
+        } else if (confirmPassword !== password) {
+          showFormError("confirmPassword", "两次输入的密码不一致");
+          isValid = false;
+        } else {
+          clearFormError("confirmPassword");
+        }
+
+        if (!isValid) return false;
+
+        // 显示加载状态
+        const registerButton = document.getElementById("registerSubmit");
+        const originalText = registerButton.textContent;
+        registerButton.textContent = "注册中...";
+        registerButton.disabled = true;
+
+        // 发送AJAX请求
+        fetch(form.action, {
+          method: "POST",
+          body: formData,
+          credentials: "same-origin",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            Accept: "application/json",
+          },
+        })
+          .then((response) => {
+            return response.json().catch(() => {
+              // 如果JSON解析失败，返回一个默认对象
+              return { success: false, message: "服务器响应格式错误" };
             });
-            
-            return false; // 阻止表单提交
-        }
-        
-        // 辅助函数：验证邮箱格式
-        function isValidEmail(email) {
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            return emailRegex.test(email);
-        }
-        
-        // 辅助函数：显示表单错误
-        window.showFormError = function(inputId, message) {
-            const input = document.getElementById(inputId);
-            if (input) {
-                const errorSpan = input.parentElement.querySelector('.form-error') || 
-                                 input.parentElement.parentElement.querySelector('.form-error');
-                if (errorSpan) {
-                    errorSpan.textContent = message;
-                    errorSpan.style.display = 'block';
-                }
+          })
+          .then((data) => {
+            if (data.success) {
+              // 注册成功
+              alert(data.message || "注册成功，请查收确认邮件");
+
+              // 切换到登录标签页
+              document.querySelector('.auth-tab[data-tab="login"]').click();
+
+              // 自动填充邮箱
+              document.getElementById("loginEmail").value = email;
+            } else {
+              // 注册失败
+              showFormError("registerUsername", data.message || "注册失败");
             }
+          })
+          .catch((error) => {
+            showFormError(
+              "registerUsername",
+              error.message || "注册失败，请稍后再试"
+            );
+          })
+          .finally(() => {
+            // 恢复按钮状态
+            registerButton.textContent = originalText;
+            registerButton.disabled = false;
+          });
+
+        return false; // 阻止表单提交
+      };
+
+      // 辅助函数：验证邮箱格式
+      function isValidEmail(email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+      }
+
+      // 辅助函数：显示表单错误
+      window.showFormError = function (inputId, message) {
+        const input = document.getElementById(inputId);
+        if (input) {
+          const errorSpan =
+            input.parentElement.querySelector(".form-error") ||
+            input.parentElement.parentElement.querySelector(".form-error");
+          if (errorSpan) {
+            errorSpan.textContent = message;
+            errorSpan.style.display = "block";
+          }
         }
-        
-        // 辅助函数：清除表单错误
-        window.clearFormError = function(inputId) {
-            const input = document.getElementById(inputId);
-            if (input) {
-                const errorSpan = input.parentElement.querySelector('.form-error') || 
-                                 input.parentElement.parentElement.querySelector('.form-error');
-                if (errorSpan) {
-                    errorSpan.textContent = '';
-                    errorSpan.style.display = 'none';
-                }
-            }
+      };
+
+      // 辅助函数：清除表单错误
+      window.clearFormError = function (inputId) {
+        const input = document.getElementById(inputId);
+        if (input) {
+          const errorSpan =
+            input.parentElement.querySelector(".form-error") ||
+            input.parentElement.parentElement.querySelector(".form-error");
+          if (errorSpan) {
+            errorSpan.textContent = "";
+            errorSpan.style.display = "none";
+          }
         }
+      };
     </script>
-</body>
-</html> 
+  </body>
+</html>

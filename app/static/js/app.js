@@ -1,5 +1,5 @@
 // 全局变量
-const MIN_TURNS_BEFORE_RECOMMEND = 7; // 至少经过多少轮对话后才推荐香薰
+const MIN_TURNS_BEFORE_RECOMMEND = 1; // 减少对话轮数限制，只需要1轮对话就可以推荐香薰
 let currentUser = null;
 let isLoggedIn = false;
 let currentEmotion = '平静';
@@ -97,24 +97,29 @@ if (isBrowser) {
             // 验证用户登录后，加载聊天历史
             if (isLoggedIn && currentUser) {
                 console.log('用户已登录，用户信息:', currentUser.username);
-                // 加载聊天会话列表
+                
+                // 先加载聊天会话列表，确保它显示
                 console.log('开始加载聊天会话列表...');
                 loadChatSessions();
                 
-                // 确保新对话按钮可点击
-                const newSessionBtn = document.getElementById('newSessionBtn');
-                if (newSessionBtn) {
-                    console.log('初始化时绑定新对话按钮点击事件');
-                    newSessionBtn.addEventListener('click', function(e) {
-                        console.log('新对话按钮被点击（从init中）');
-                        e.preventDefault();
-                        e.stopPropagation();
-                        createNewSession();
-                    });
+                // 确保聊天会话列表元素可见
+                const chatSessionsElement = document.getElementById('chatSessions');
+                if (chatSessionsElement) {
+                    console.log('确保聊天会话列表元素可见');
+                    chatSessionsElement.style.display = 'block';
+                    
+                    // 强制显示，防止CSS样式冲突
+                    setTimeout(() => {
+                        chatSessionsElement.style.display = 'block';
+                        console.log('再次确认聊天会话列表元素显示');
+                    }, 300);
                 }
                 
-                // 加载聊天历史
-                loadChatHistory();
+                // 等待会话列表加载完成后再加载聊天历史
+                setTimeout(() => {
+                    console.log('加载聊天历史...');
+                    loadChatHistory();
+                }, 500);
                 
                 // 直接绑定用户菜单事件
                 bindUserMenuEvents();
@@ -126,6 +131,8 @@ if (isBrowser) {
             }
         }).catch(error => {
             console.error('检查登录状态时出错:', error);
+            // 出错时也显示欢迎消息
+            loadChatHistory();
         });
 
         // 初始化聊天区域滚动
@@ -464,15 +471,24 @@ if (isBrowser) {
         });
     }
 
-    // 发送消息
+    // 全局变量，用于跟踪用户最近的消息
+    let recentUserMessages = [];
+    const MAX_RECENT_MESSAGES = 5; // 记录最近5条消息
+    
     function sendMessage() {
         const messageInput = document.getElementById('messageInput');
         const message = messageInput.value.trim();
         
         if (message === '') return;
         
+        // 检查是否是重复消息
+        const isRepeatedMessage = checkRepeatedUserMessage(message);
+        
         // 记录当前用户消息
         lastUserMessage = message;
+        
+        // 添加到最近消息列表
+        addToRecentMessages(message);
         
         // 清空输入框
         messageInput.value = '';
@@ -489,6 +505,20 @@ if (isBrowser) {
         // 显示"正在输入"状态
         showTypingIndicator();
         
+        // 检查用户是否已登录
+        if (!isLoggedIn) {
+            console.log('用户未登录，显示登录提示');
+            // 移除"正在输入"状态
+            removeTypingIndicator();
+            // 添加系统消息提示用户登录
+            addMessageToChat('assistant', '请先登录后再继续对话，这样我可以更好地为您提供个性化服务。');
+            // 打开登录模态框
+            setTimeout(() => {
+                openModal('authModal');
+            }, 1000);
+            return;
+        }
+        
         // 获取CSRF令牌
         let csrfToken = '';
         const csrfMeta = document.querySelector('meta[name="csrf-token"]');
@@ -501,19 +531,14 @@ if (isBrowser) {
         // 增加对话轮数
         dialogTurns++;
         
-        // 检查是否应该推荐香薰 - 基于对话轮数的标准条件
-        if (dialogTurns >= MIN_TURNS_BEFORE_RECOMMEND && !shouldRecommendAroma) {
-            shouldRecommendAroma = true;
-        }
+        // 移除对话轮数和心情好转的限制，始终设置shouldRecommendAroma为true
+        // 这样每次发送消息后都会根据当前情绪更新推荐
+        shouldRecommendAroma = true;
         
-        // 检查用户是否表达了心情好转 - 新增的推荐条件
-        // 当用户表达感谢或心情好转时，即使对话轮数未达到标准，也可以推荐香薰
-        // 这是因为此时用户可能更愿意接受建议，推荐的接受度会更高
-        const moodImproved = checkMoodImprovement(message);
-        if (moodImproved && !shouldRecommendAroma) {
-            console.log('用户表达了心情好转，将推荐香薰，即使对话轮数未达到标准');
-            shouldRecommendAroma = true;
-        }
+        // 每次发送消息后都加载香薰推荐，无论当前人设是什么
+        setTimeout(() => {
+            loadRecommendations();
+        }, 500);
         
         // 保存对话上下文
         saveDialogContext();
@@ -521,6 +546,21 @@ if (isBrowser) {
         // 提取并更新用户偏好
         const extractedPreferences = extractUserPreferencesFromMessage(message);
         updateUserPreferences(extractedPreferences);
+        
+        // 如果是重复消息，直接生成替代回复而不调用API
+        if (isRepeatedMessage) {
+            console.log('检测到用户重复消息，生成替代回复');
+            removeTypingIndicator();
+            const alternativeReply = generateAlternativeReply(message);
+            addMessageToChat('assistant', alternativeReply);
+            lastAssistantReply = alternativeReply;
+            
+            // 如果应该推荐香薰，加载推荐
+            if (shouldRecommendAroma) {
+                loadRecommendations();
+            }
+            return;
+        }
         
         // 发送消息到后端API
         fetch('/api/chat', {
@@ -601,20 +641,20 @@ if (isBrowser) {
                 // 更新情绪显示
                 if (data.emotion) {
                     updateEmotionDisplay(
-                        data.emotion.type || 'neutral', 
-                        data.emotion.type || '平静', 
-                        data.emotion.icon || 'fa-smile',
-                        data.emotion.description || '您当前的情绪状态看起来很平静'
+                            data.emotion.type || 'neutral', 
+                            data.emotion.type || '平静', 
+                            data.emotion.icon || 'fa-smile',
+                            data.emotion.description || '您当前的情绪状态看起来很平静'
                     );
                 }
                 
                 // 更新推荐
                 if (data.recommendations) {
                     updateRecommendations(data.recommendations);
-                } else if (shouldRecommendAroma) {
-                    // 如果应该推荐香薰但API没有返回推荐，则主动加载推荐
-                    loadRecommendations();
-                }
+                    } else if (shouldRecommendAroma) {
+                        // 如果应该推荐香薰但API没有返回推荐，则主动加载推荐
+                        loadRecommendations();
+                    }
                 } else {
                     // 没有收到回复，生成一个替代回复
                     const alternativeReply = generateAlternativeReply(lastUserMessage);
@@ -636,11 +676,9 @@ if (isBrowser) {
                 lastAssistantReply = errorMessage;
                 
                 // 如果用户消息已保存但助手回复保存失败，提示用户刷新页面
-                if (data.user_message_saved) {
+                if (data.message && data.message.includes('保存回复失败')) {
                     setTimeout(() => {
-                        const refreshMessage = '您的消息已保存，但我的回复保存失败。刷新页面可能会看到完整对话。';
-                        addMessageToChat('assistant', refreshMessage);
-                        lastAssistantReply = refreshMessage;
+                        addMessageToChat('assistant', '您可以尝试刷新页面，查看完整的对话历史。');
                     }, 1000);
                 }
             }
@@ -652,32 +690,33 @@ if (isBrowser) {
             removeTypingIndicator();
             
             // 显示错误消息
-            const errorMessage = `抱歉，发生了错误: ${error.message || '网络连接问题'}。请检查您的网络连接并稍后再试。`;
+            const errorMessage = '抱歉，发送消息时出现了网络问题，请检查您的网络连接并稍后再试。';
             addMessageToChat('assistant', errorMessage);
             lastAssistantReply = errorMessage;
-            
-            // 添加重试按钮
-            setTimeout(() => {
-                const retryMessage = document.createElement('div');
-                retryMessage.className = 'message assistant retry-message';
-                retryMessage.innerHTML = `
-                    <div class="message-content">
-                        <p>您可以 <button class="retry-button">重试发送</button> 这条消息。</p>
-                    </div>
-                `;
-                
-                // 添加重试按钮点击事件
-                chatMessages.appendChild(retryMessage);
-                const retryButton = retryMessage.querySelector('.retry-button');
-                retryButton.addEventListener('click', () => {
-                    // 移除重试消息
-                    retryMessage.remove();
-                    // 重新发送最后一条消息
-                    messageInput.value = lastUserMessage;
-                    sendMessage();
-                });
-            }, 2000);
         });
+    }
+    
+    // 检查用户消息是否重复
+    function checkRepeatedUserMessage(message) {
+        // 检查最近的消息中是否有完全相同的消息
+        return recentUserMessages.includes(message);
+    }
+    
+    // 添加消息到最近消息列表
+    function addToRecentMessages(message) {
+        // 如果消息已经在列表中，先移除它
+        const index = recentUserMessages.indexOf(message);
+        if (index !== -1) {
+            recentUserMessages.splice(index, 1);
+        }
+        
+        // 添加到列表开头
+        recentUserMessages.unshift(message);
+        
+        // 保持列表长度不超过最大值
+        if (recentUserMessages.length > MAX_RECENT_MESSAGES) {
+            recentUserMessages.pop();
+        }
     }
 
     // 检查回复是否重复或不相关
@@ -726,18 +765,6 @@ if (isBrowser) {
         
         // 如果用户最后一条消息很具体，但回复很笼统，可能是不相关回复
         const specificKeywords = ['考试', '学习', '焦虑', '紧张', '压力', '难过', '开心', '准备'];
-        let userHasSpecificContext = false;
-        
-        for (const keyword of specificKeywords) {
-            if (lastUserMessage.toLowerCase().includes(keyword)) {
-                userHasSpecificContext = true;
-                // 检查回复是否包含相同的关键词，确保上下文连贯
-                if (!reply.toLowerCase().includes(keyword)) {
-                    console.log(`用户提到了"${keyword}"，但回复中未包含相关内容，可能不够相关`);
-                    return true;
-                }
-            }
-        }
         
         return false;
     }
@@ -843,6 +870,25 @@ if (isBrowser) {
     function generateAlternativeReply(userMessage) {
         console.log("生成替代回复，基于用户消息:", userMessage);
         
+        // 检查是否是重复消息
+        const isRepeatedMessage = checkRepeatedUserMessage(userMessage);
+        if (isRepeatedMessage) {
+            console.log("检测到用户重复发送相同消息，生成提示回复");
+            
+            // 为重复消息生成不同的回复
+            const repeatedReplies = [
+                `我注意到你刚刚提到了同样的内容。你是想强调这一点，还是有其他想要补充的内容呢？`,
+                `你似乎重复提到了这个话题，这对你来说一定很重要。你能告诉我更多关于这方面的想法吗？`,
+                `我们刚才已经聊到了这个话题。也许你想从不同的角度探讨，或者有其他想要分享的内容？`,
+                `我理解这个话题对你很重要。你想要我从不同角度回答，或者有其他方面想要讨论吗？`,
+                `你再次提到了这个话题，这让我感到你对此很关注。有什么特别的原因吗？`
+            ];
+            
+            // 随机选择一个回复，避免重复
+            const randomIndex = Math.floor(Math.random() * repeatedReplies.length);
+            return repeatedReplies[randomIndex];
+        }
+        
         // 根据用户的消息生成上下文相关的回复
         const lowerMessage = userMessage.toLowerCase();
         
@@ -886,64 +932,102 @@ if (isBrowser) {
 4. **限制咖啡因摄入**：咖啡、茶和能量饮料可能会加重焦虑症状
 5. **充足休息**：确保有足够的睡眠和放松时间
 
-你能告诉我更多关于让你感到焦虑的具体情况吗？这样我可以提供更有针对性的建议。`;
+你能告诉我更多关于你焦虑的具体情况吗？这样我可以提供更有针对性的建议。`;
         }
-        // 检查是否包含情绪相关内容
-        else if (lowerMessage.includes('难过') || lowerMessage.includes('伤心') || 
-                 lowerMessage.includes('不开心') || lowerMessage.includes('失落')) {
-            return `听到你感到难过，我很理解这种感受。有时候情绪会让我们感到沉重，这是完全正常的。
+        // 检查是否包含心情相关内容
+        else if (lowerMessage.includes('心情') || lowerMessage.includes('情绪') || 
+                 lowerMessage.includes('感觉') || lowerMessage.includes('感受')) {
+            if (lowerMessage.includes('不好') || lowerMessage.includes('糟糕') || 
+                lowerMessage.includes('难过') || lowerMessage.includes('伤心') || 
+                lowerMessage.includes('失落') || lowerMessage.includes('沮丧')) {
+                return `我很遗憾听到你现在心情不好。每个人都有情绪低落的时候，这是完全正常的。
 
-面对这些情绪，你可以尝试：
+请记住，情绪就像天气，它们会变化，不会永远持续。以下是一些可能帮助你改善心情的方法：
+
 1. **允许自己感受**：不要压抑情绪，给自己空间和时间去感受它们
-2. **温和对待自己**：就像对待一位正在经历困难的朋友一样对待自己
-3. **寻找支持**：与信任的朋友或家人分享你的感受
-4. **小小的愉悦活动**：做一些简单的、能让你感到一丝愉悦的事情
-5. **规律作息**：保持规律的生活节奏可以帮助稳定情绪
+2. **温和活动**：尝试一些简单的活动，如散步、听喜欢的音乐或看一部轻松的电影
+3. **与人交流**：与朋友或家人分享你的感受，有时候倾诉本身就是一种释放
+4. **自我关爱**：做一些让自己感到舒适和愉悦的事情，比如泡个热水澡或享用喜欢的食物
+5. **正念练习**：尝试将注意力集中在当下，观察自己的呼吸和身体感受
 
-你愿意分享是什么让你感到难过吗？或者有什么我可以帮助你的地方？`;
-        }
-        // 检查是否包含学业或工作压力相关内容
-        else if (lowerMessage.includes('学习') || lowerMessage.includes('工作') || 
-                 lowerMessage.includes('压力') || lowerMessage.includes('忙')) {
-            return `学习和工作的压力确实会让人感到焦虑和不堪重负。这种感受很常见，但也有方法可以帮助你更好地应对：
+你愿意分享是什么让你感到难过的吗？或者有什么我能帮到你的地方？`;
+            } else if (lowerMessage.includes('好') || lowerMessage.includes('开心') || 
+                       lowerMessage.includes('愉快') || lowerMessage.includes('高兴')) {
+                return `很高兴听到你现在心情不错！积极的情绪对我们的身心健康都有很大帮助。
 
-1. **任务分解**：将大任务分解成小步骤，逐一完成，这样会减轻心理负担
-2. **优先级排序**：确定哪些任务最重要或最紧急，先处理这些任务
-3. **时间管理**：尝试番茄工作法（25分钟专注工作，5分钟休息）等技巧提高效率
-4. **设定界限**：学会说"不"，避免承担过多责任
-5. **寻求协助**：不要犹豫向同事、同学或导师寻求帮助
+你能分享一下是什么让你感到开心的吗？有时候回顾这些积极的经历可以帮助我们在未来的低落时刻找到力量。
 
-你最近面临哪些具体的学习或工作挑战？或许我们可以一起想办法解决。`;
-        }
-        // 针对游戏开发和面试相关的替代回复
-        else if (lowerMessage.includes('面试') || lowerMessage.includes('工作')) {
-            if (lowerMessage.includes('网易') || lowerMessage.includes('实习')) {
-                return `看来你收到了网易游戏客户端开发实习岗的面试邀请，这真是个好消息！网易在游戏行业的地位不言而喻。面试前，我建议你可以：
+趁着这个好心情，你可以考虑：
+1. **记录感恩**：写下今天让你感恩的事情，这有助于培养积极的心态
+2. **分享喜悦**：与朋友或家人分享你的好心情，积极情绪是会传染的
+3. **创造性活动**：利用这种积极能量做一些创造性的事情，如绘画、写作或音乐
+4. **户外活动**：如果天气允许，可以出去走走，阳光和自然环境能进一步提升心情
+5. **设定目标**：在心情好的时候设定一些积极的目标，这时你的思维更加开阔和乐观
 
-1. 熟悉网易主要游戏产品和技术栈（Unity/Unreal等）
-2. 复习图形渲染、游戏引擎架构、性能优化等核心知识点
-3. 准备1-2个你参与过的游戏项目案例，能够清晰地阐述你的贡献和解决的技术挑战
-4. 了解一些网易的游戏，比如《阴阳师》《第五人格》《梦幻西游》等热门产品
-
-你对面试中哪方面技术问题比较担心？或者你想重点准备哪些方面？`;
+有什么特别的事情让你今天感到开心吗？`;
             } else {
-                return `恭喜你收到面试邀请！作为游戏客户端开发者，这是展示你技能的好机会。
+                return `谢谢你分享你的心情。了解和接纳自己的情绪是情绪健康的重要一步。
 
-游戏客户端面试通常会关注这些方面：
-1. 编程基础与数据结构
-2. 图形学与渲染管线知识
-3. 游戏引擎使用经验（Unity/Unreal等）
-4. 性能优化技巧
-5. 项目经验与解决问题的能力
+无论你现在感受如何，都是完全有效和重要的。每种情绪都有其存在的价值和意义。
 
-你已经有什么准备了吗？或者有特定的技术领域需要重点复习？`;
+你能更具体地描述一下你现在的感受吗？这样我可以更好地理解你的情况，并提供更有针对性的支持。
+
+同时，记住照顾自己的情绪健康也很重要：保持规律的作息、健康的饮食、适当的运动，以及与亲友的联系，这些都能帮助我们维持情绪的平衡。
+
+有什么特别想和我分享或讨论的吗？`;
             }
         }
-        // 通用回复，尝试基于用户最后一条消息提供相关的回应
-        else {
-            return `我注意到你提到了"${userMessage.substring(0, Math.min(20, userMessage.length))}..."。能否告诉我更多关于这方面的情况？我很想了解你的想法和感受，这样我才能提供更有针对性的支持。
+        // 检查是否包含天气相关内容
+        else if (lowerMessage.includes('天气') || lowerMessage.includes('下雨') || 
+                 lowerMessage.includes('晴天') || lowerMessage.includes('阴天') ||
+                 lowerMessage.includes('雨天') || lowerMessage.includes('太阳')) {
+            if (lowerMessage.includes('好') || lowerMessage.includes('晴') || lowerMessage.includes('太阳')) {
+                return `天气好确实能让人心情愉悦。阳光明媚的日子，总是让人感到充满希望和活力。你有没有趁着好天气出去走走，享受一下大自然的美好呢？
 
-有时候，与他人分享我们的想法和经历可以帮助我们更好地理解自己的情绪。无论你想讨论什么，我都在这里倾听和支持你。`;
+研究表明，阳光能促进身体产生维生素D和血清素，这对我们的身心健康都很有益。在这样的好天气里，可以考虑：
+
+1. **户外活动**：散步、骑行或只是坐在公园里享受阳光
+2. **自然探索**：参观附近的公园、植物园或自然保护区
+3. **户外用餐**：在户外享用一顿美食，感受微风和阳光
+4. **户外运动**：打球、跑步或做瑜伽，户外运动更有活力
+5. **摄影**：记录美丽的景色和瞬间
+
+好天气对你的心情有什么特别的影响吗？`;
+            } else if (lowerMessage.includes('不好') || lowerMessage.includes('雨') || lowerMessage.includes('阴')) {
+                return `天气不好时确实容易影响心情。阴雨天气会让一些人感到情绪低落或缺乏活力，这是很常见的现象，甚至有一种称为"季节性情感障碍"的状况与此相关。
+
+在这样的天气里，我们可以尝试：
+
+1. **室内活动**：读一本好书、看电影或尝试新的烹饪食谱
+2. **创造舒适环境**：点上香薰蜡烛、泡一杯热茶、裹上舒适的毯子
+3. **社交联系**：与朋友视频聊天或打电话，保持社交连接
+4. **创意项目**：绘画、写作或其他创意活动可以转移注意力
+5. **室内运动**：瑜伽、舞蹈或简单的伸展运动也能提升心情
+
+你有没有特别喜欢在雨天或阴天做的事情呢？`;
+            } else {
+                return `天气确实能影响我们的情绪和日常活动。无论是晴天还是雨天，每种天气都有其独特的美丽和可能性。
+
+你对天气变化敏感吗？有些人会因为气压变化或光照条件的改变而感到身体或情绪上的变化。
+
+适应不同的天气也是一种生活智慧。正如一句谚语所说："没有不好的天气，只有不合适的衣服。"我们可以通过调整活动和心态来适应各种天气条件。
+
+你最喜欢什么样的天气？是温暖的夏日，清爽的秋天，还是其他季节？`;
+            }
+        }
+        // 默认回复
+        else {
+            const defaultReplies = [
+                `谢谢你的分享。你能告诉我更多关于这个话题的想法吗？我很想了解你的观点和感受。`,
+                `这是个很有趣的话题。你对此有什么特别的想法或感受吗？我很乐意继续探讨这个话题。`,
+                `感谢你与我交流这些内容。你想更深入地讨论这个话题的哪些方面呢？我很期待听到你的想法。`,
+                `我很欣赏你愿意分享这些。这对你来说有什么特别的意义吗？我很想更好地理解你的视角。`,
+                `这确实是个值得思考的话题。你有没有什么特别的经历或观察与此相关？我很想听你分享更多。`
+            ];
+            
+            // 随机选择一个回复，避免重复
+            const randomIndex = Math.floor(Math.random() * defaultReplies.length);
+            return defaultReplies[randomIndex];
         }
     }
 
@@ -1043,84 +1127,51 @@ if (isBrowser) {
         isTyping = false;
     }
 
-    // 分析情绪（模拟）
+    // 分析情绪
     function analyzeEmotion(message) {
-        // 扩展的关键词匹配（与后端保持一致）
-        let emotionType = 'neutral';
-        let emotionLabel = '平静';
-        let emotionIcon = 'fa-smile';
-        let emotionDescription = '您当前的情绪状态看起来很平静';
-
+        // 简单的情绪分析逻辑
         const lowerMessage = message.toLowerCase();
 
-        // 情绪类别和关键词映射
+        // 情绪关键词映射
         const emotionKeywords = {
-            'sad': {
-                keywords: ['难过', '伤心', '悲', '哭', '失落', '绝望', '痛苦', '遗憾', '哀伤', '忧郁'],
-                label: '悲伤',
-                icon: 'fa-sad-tear',
-                description: '您似乎感到有些悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。'
-            },
-            'anxious': {
-                keywords: ['焦虑', '担心', '紧张', '害怕', '恐惧', '不安', '慌张', '忧虑', '惊慌', '压力'],
-                label: '焦虑',
-                icon: 'fa-frown',
-                description: '您似乎感到有些焦虑。深呼吸可能会有所帮助，尝试放松您的身心。'
-            },
-            'angry': {
-                keywords: ['生气', '愤怒', '烦', '恼火', '暴躁', '恨', '不满', '怒火', '气愤', '厌烦'],
-                label: '愤怒',
-                icon: 'fa-angry',
-                description: '您似乎感到有些愤怒。这是一种正常的情绪，尝试找到健康的方式来表达它。'
-            },
-            'happy': {
-                keywords: ['开心', '高兴', '快乐', '喜悦', '兴奋', '愉快', '欣喜', '满足', '幸福', '欢乐'],
-                label: '快乐',
-                icon: 'fa-grin-beam',
-                description: '您似乎心情不错！享受这美好的时刻，并记住这种感觉。'
-            },
-            'tired': {
-                keywords: ['疲惫', '累', '困', '倦怠', '精疲力竭', '没精神', '疲乏', '疲劳', '困倦', '乏力'],
-                label: '疲惫',
-                icon: 'fa-tired',
-                description: '您似乎感到有些疲惫。适当的休息对身心健康都很重要。'
-            },
-            'neutral': {
-                keywords: ['平静', '安宁', '放松', '舒适', '安心', '宁静', '祥和', '镇定', '安详', '平和'],
-                label: '平静',
-                icon: 'fa-smile',
-                description: '您当前的情绪状态看起来很平静'
-            }
+            '焦虑': ['焦虑', '紧张', '不安', '担心', '害怕', '恐惧', '慌张'],
+            '压力': ['压力', '疲惫', '累', '劳累', '疲劳', '负担', '重担'],
+            '悲伤': ['悲伤', '难过', '伤心', '痛苦', '哭', '抑郁', '消沉', '失落'],
+            '愤怒': ['愤怒', '生气', '恼火', '烦躁', '暴躁', '发火', '怒火'],
+            '失眠': ['失眠', '睡不着', '睡眠', '入睡', '失眠症', '睡眠质量'],
+            '平静': ['平静', '放松', '舒适', '安心', '安宁', '平和', '宁静'],
+            '快乐': ['快乐', '开心', '高兴', '喜悦', '欣喜', '愉快', '兴奋']
         };
-
-        // 计算每种情绪的匹配度
-        let bestMatchCount = 0;
-        let bestMatchType = 'neutral';
-
-        for (const [type, data] of Object.entries(emotionKeywords)) {
-            const matchCount = data.keywords.filter(keyword => lowerMessage.includes(keyword)).length;
-            if (matchCount > bestMatchCount) {
-                bestMatchCount = matchCount;
-                bestMatchType = type;
+        
+        // 检测情绪
+        let detectedEmotion = '平静'; // 默认情绪
+        let maxMatches = 0;
+        
+        for (const [emotion, keywords] of Object.entries(emotionKeywords)) {
+            const matches = keywords.filter(keyword => lowerMessage.includes(keyword)).length;
+            if (matches > maxMatches) {
+                maxMatches = matches;
+                detectedEmotion = emotion;
             }
         }
-
-        // 如果找到匹配的情绪
-        if (bestMatchCount > 0) {
-            const matchedEmotion = emotionKeywords[bestMatchType];
-            emotionType = bestMatchType;
-            emotionLabel = matchedEmotion.label;
-            emotionIcon = matchedEmotion.icon;
-            emotionDescription = matchedEmotion.description;
+        
+        // 更新当前情绪
+        if (maxMatches > 0) {
+            currentEmotion = detectedEmotion;
+            
+            // 更新情绪显示
+            updateEmotionDisplay(
+                detectedEmotion,
+                detectedEmotion,
+                getEmotionIcon(detectedEmotion),
+                getEmotionDescription(detectedEmotion)
+            );
+            
+            // 情绪变化时立即更新香薰推荐
+            loadRecommendations();
         }
-
-        // 更新全局情绪状态
-        currentEmotion = emotionLabel;
-
-        // 只有当检测到情绪关键词时才更新显示
-        if (emotionType !== 'neutral' || currentEmotion === 'neutral') {
-            updateEmotionDisplay(emotionType, emotionLabel, emotionIcon, emotionDescription);
-        }
+        
+        return detectedEmotion;
     }
 
     // 更新情绪显示
@@ -1159,6 +1210,22 @@ if (isBrowser) {
 
             case 'mindful':
                 return '让我们一起深呼吸，专注于当下这一刻。注意你的感受，但不要评判它们。这些情绪就像天空中的云，它们会来也会去。保持觉知，温和地接纳当前的体验，无论它是什么。';
+                
+            case 'aromatherapist':
+                // 香薰顾问人设的回复逻辑
+                if (lowerMessage.includes('难过') || lowerMessage.includes('伤心') || lowerMessage.includes('悲伤')) {
+                    return '我注意到你感到有些悲伤。薰衣草和甜橙精油对缓解悲伤情绪非常有效。薰衣草的香气能够舒缓神经系统，而甜橙则能提升心情。我可以根据你的具体情况为你推荐最适合的香薰产品，帮助你调节情绪。';
+                } else if (lowerMessage.includes('焦虑') || lowerMessage.includes('担心') || lowerMessage.includes('紧张')) {
+                    return '焦虑是现代生活中常见的情绪。洋甘菊和薰衣草精油对缓解焦虑特别有效。洋甘菊有温和的镇静作用，而薰衣草则能帮助放松身心。使用香薰扩散器在室内弥漫这些精油的香气，可以创造一个平静的环境，帮助你缓解焦虑感。';
+                } else if (lowerMessage.includes('疲惫') || lowerMessage.includes('累') || lowerMessage.includes('疲劳')) {
+                    return '疲惫感会影响我们的情绪和生活质量。薄荷和柠檬精油具有提神醒脑的效果，能够帮助缓解疲劳。你可以尝试在早晨使用这些精油，为一天注入活力。我们的数据库中有多款针对疲劳感的香薰产品，我很乐意为你推荐最适合的选择。';
+                } else if (lowerMessage.includes('愤怒') || lowerMessage.includes('生气') || lowerMessage.includes('烦躁')) {
+                    return '愤怒和烦躁是需要适当释放的情绪。佛手柑和依兰依兰精油有助于平复情绪，缓解愤怒感。佛手柑的清新香气能够提升心情，而依兰依兰则有助于平衡情绪。在感到愤怒时，可以尝试深呼吸并闻一闻这些精油的香气，帮助你找回内心的平静。';
+                } else if (lowerMessage.includes('失眠') || lowerMessage.includes('睡不着')) {
+                    return '睡眠问题会影响我们的情绪和健康。薰衣草、洋甘菊和罗马洋甘菊精油都有助于改善睡眠质量。在睡前30分钟使用香薰蜡烛或扩香器，让这些精油的香气充满卧室，可以帮助你更容易入睡。我们有专门针对睡眠问题的香薰套装，可以根据你的具体情况为你推荐。';
+                } else {
+                    return '作为香薰顾问，我可以根据你的情绪状态为你推荐最适合的香薰产品。不同的精油和香薰有不同的功效，可以帮助缓解焦虑、提升心情、改善睡眠或增强活力。告诉我你最近的情绪状态或你希望改善的方面，我会从我们的数据库中为你找到最合适的香薰推荐。';
+                }
 
             default:
                 return '我理解你的感受。请继续分享你的想法，我在这里倾听和支持你。';
@@ -1237,25 +1304,15 @@ if (isBrowser) {
 
     // 加载推荐
     function loadRecommendations() {
-        // 判断是否应该显示推荐
-        // 有两种情况会显示推荐：
-        // 1. 对话轮数达到MIN_TURNS_BEFORE_RECOMMEND（默认7轮）
-        // 2. 用户表达了心情好转（通过shouldRecommendAroma标志判断）
-        if (!shouldRecommendAroma && dialogTurns < MIN_TURNS_BEFORE_RECOMMEND) {
+        // 移除对话轮数和心情好转的限制，直接根据当前情绪展示推荐
+        // 只有在初始化时（dialogTurns === 0）才显示占位符
+        if (dialogTurns === 0) {
             const recommendationsContainer = document.querySelector('.recommendation-cards');
             recommendationsContainer.innerHTML = '';
             
             const placeholder = document.createElement('div');
             placeholder.className = 'recommendation-placeholder';
-            
-            // 根据对话轮数提供不同的提示信息
-            if (dialogTurns === 0) {
-                placeholder.textContent = '我是你的情感助手，让我们先聊聊你的感受...';
-            } else if (dialogTurns < 3) {
-                placeholder.textContent = '继续交流，我希望能更好地了解你的情况...';
-            } else {
-                placeholder.textContent = `再聊${MIN_TURNS_BEFORE_RECOMMEND - dialogTurns}轮后，我会为你推荐合适的香薰产品...`;
-            }
+            placeholder.textContent = '我是你的情感助手，让我们先聊聊你的感受...';
             
             recommendationsContainer.appendChild(placeholder);
             return;
@@ -1272,8 +1329,17 @@ if (isBrowser) {
         // 检查用户是否登录
         const isLoggedIn = document.querySelector('.user-info') !== null;
         
-        // 从API获取随机推荐产品，如果用户已登录则使用个性化推荐
-        fetch(`/api/products?per_page=2&random=true&personalized=${isLoggedIn}`)
+        // 从API获取推荐产品，基于当前情绪
+        fetch(`/api/recommend_products`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                emotion: currentEmotion,
+                limit: 3
+            })
+        })
             .then(response => response.json())
             .then(data => {
                 // 移除加载指示器
@@ -1283,13 +1349,11 @@ if (isBrowser) {
                     // 更新全局产品数据
                     aromatherapyProducts = data.products;
                     
-                    // 如果是个性化推荐，显示提示信息
-                    if (data.personalized && data.dominant_emotions) {
-                        const personalizationInfo = document.createElement('div');
-                        personalizationInfo.classList.add('personalization-info');
-                        personalizationInfo.innerHTML = `<i class="fas fa-info-circle"></i> 根据您的情绪历史（${data.dominant_emotions.join('、')}）推荐`;
-                        recommendationCards.appendChild(personalizationInfo);
-                    }
+                    // 显示情绪相关提示
+                    const emotionInfo = document.createElement('div');
+                    emotionInfo.classList.add('personalization-info');
+                    emotionInfo.innerHTML = `<i class="fas fa-info-circle"></i> 根据您的当前情绪（${currentEmotion}）推荐`;
+                    recommendationCards.appendChild(emotionInfo);
                     
                     // 显示产品
                     data.products.forEach(product => {
@@ -1352,18 +1416,21 @@ if (isBrowser) {
         const recommendationsContainer = document.querySelector('.recommendation-cards');
         recommendationsContainer.innerHTML = '';
 
-        // 只有当应该推荐香薰时才显示推荐
-        if (shouldRecommendAroma) {
+        // 移除shouldRecommendAroma的限制，直接显示推荐
+        if (recommendations && recommendations.length > 0) {
+            // 显示情绪相关提示
+            const emotionInfo = document.createElement('div');
+            emotionInfo.classList.add('personalization-info');
+            emotionInfo.innerHTML = `<i class="fas fa-info-circle"></i> 根据您的当前情绪（${currentEmotion}）推荐`;
+            recommendationsContainer.appendChild(emotionInfo);
+
         recommendations.forEach(product => {
             const card = createProductCard(product);
                 recommendationsContainer.appendChild(card);
-            });
+        });
         } else {
-            // 显示占位符或提示信息
-            const placeholder = document.createElement('div');
-            placeholder.className = 'recommendation-placeholder';
-            placeholder.textContent = '与助手多聊聊，了解你的需求后将为你推荐合适的香薰产品...';
-            recommendationsContainer.appendChild(placeholder);
+            // 如果没有推荐，则加载推荐
+            loadRecommendations();
         }
     }
 
@@ -2263,8 +2330,23 @@ if (isBrowser) {
                     authButton.style.display = 'flex';
                     userProfile.style.display = 'none';
 
+                    // 清空聊天区域，然后显示退出消息
+                    const chatMessages = document.getElementById('chatMessages');
+                    if (chatMessages) {
+                        chatMessages.innerHTML = '';
+                    }
+
                     // 显示消息
                     addMessageToChat('assistant', '你已退出登录。随时欢迎你回来！');
+                    
+                    // 隐藏聊天会话列表
+                    const chatSessionsElement = document.getElementById('chatSessions');
+                    if (chatSessionsElement) {
+                        chatSessionsElement.style.display = 'none';
+                    }
+                    
+                    // 重置欢迎消息标志，这样下次登录时会显示欢迎消息
+                    welcomeMessageShown = false;
                 }
             })
             .catch(error => {
@@ -2272,15 +2354,32 @@ if (isBrowser) {
             });
     }
 
-    // 更新已登录用户的UI
+    // 更新UI为已登录用户
     function updateUIForLoggedInUser() {
-        if (currentUser) {
+        console.log('执行updateUIForLoggedInUser函数，当前用户:', currentUser);
+        
+        if (!currentUser) {
+            console.error('currentUser为空，无法更新UI');
+            return;
+        }
+        
+        try {
             console.log('更新UI为已登录用户:', currentUser.username);
             
             // 隐藏登录按钮，显示用户资料
-            document.getElementById('authButton').style.display = 'none';
+            const authButton = document.getElementById('authButton');
+            if (authButton) {
+                authButton.style.display = 'none';
+            } else {
+                console.error('未找到authButton元素');
+            }
+            
             const userProfile = document.getElementById('userProfile');
+            if (userProfile) {
             userProfile.style.display = 'flex';
+            } else {
+                console.error('未找到userProfile元素');
+            }
             
             // 显示聊天会话列表
             const chatSessions = document.getElementById('chatSessions');
@@ -2292,8 +2391,19 @@ if (isBrowser) {
             }
             
             // 更新用户信息
-            document.querySelector('.user-name').textContent = currentUser.username;
-            document.querySelector('.user-email').textContent = currentUser.email;
+            const userNameElement = document.querySelector('.user-name');
+            if (userNameElement) {
+                userNameElement.textContent = currentUser.username;
+            } else {
+                console.error('未找到.user-name元素');
+            }
+            
+            const userEmailElement = document.querySelector('.user-email');
+            if (userEmailElement) {
+                userEmailElement.textContent = currentUser.email;
+            } else {
+                console.error('未找到.user-email元素');
+            }
             
             // 更新用户头像
             const avatarImg = document.querySelector('.user-avatar img');
@@ -2304,11 +2414,24 @@ if (isBrowser) {
                     this.src = '/static/img/default_avatar.png';
                 };
                 avatarImg.src = currentUser.avatar + '?t=' + new Date().getTime();
+            } else {
+                console.log('未找到头像元素或用户头像为空');
             }
             
             // 更新个人资料表单
-            document.getElementById('profileUsername').value = currentUser.username;
-            document.getElementById('profileEmail').value = currentUser.email;
+            const profileUsername = document.getElementById('profileUsername');
+            if (profileUsername) {
+                profileUsername.value = currentUser.username;
+            } else {
+                console.error('未找到profileUsername元素');
+            }
+            
+            const profileEmail = document.getElementById('profileEmail');
+            if (profileEmail) {
+                profileEmail.value = currentUser.email;
+            } else {
+                console.error('未找到profileEmail元素');
+            }
             
             // 更新个人资料头像
             const profileAvatar = document.querySelector('.profile-avatar img');
@@ -2319,16 +2442,28 @@ if (isBrowser) {
                     this.src = '/static/img/default_avatar.png';
                 };
                 profileAvatar.src = currentUser.avatar + '?t=' + new Date().getTime();
+            } else {
+                console.log('未找到个人资料头像元素或用户头像为空');
             }
             
             // 重置情绪和香薰偏好复选框
-            document.querySelectorAll('.emotion-preference input[type="checkbox"]').forEach(checkbox => {
+            const emotionCheckboxes = document.querySelectorAll('.emotion-preference input[type="checkbox"]');
+            if (emotionCheckboxes.length > 0) {
+                emotionCheckboxes.forEach(checkbox => {
                 checkbox.checked = false;
             });
+            } else {
+                console.log('未找到情绪偏好复选框');
+            }
             
-            document.querySelectorAll('.aroma-preference input[type="checkbox"]').forEach(checkbox => {
+            const aromaCheckboxes = document.querySelectorAll('.aroma-preference input[type="checkbox"]');
+            if (aromaCheckboxes.length > 0) {
+                aromaCheckboxes.forEach(checkbox => {
                 checkbox.checked = false;
             });
+            } else {
+                console.log('未找到香薰偏好复选框');
+            }
             
             // 设置用户偏好
             if (currentUser.preferences && currentUser.preferences.emotions) {
@@ -2346,13 +2481,22 @@ if (isBrowser) {
             }
             
             // 绑定用户菜单事件
-            bindUserMenuEvents();
+            if (typeof bindUserMenuEvents === 'function') {
+                bindUserMenuEvents();
+            } else {
+                console.error('bindUserMenuEvents函数未定义');
+            }
             
             // 加载用户的人设偏好
+            if (typeof loadUserPersona === 'function') {
             loadUserPersona();
+            } else {
+                console.log('loadUserPersona函数未定义，使用默认人设');
+            }
             
-            // 加载聊天历史
-            loadChatHistory();
+            console.log('UI更新完成');
+        } catch (error) {
+            console.error('更新UI为已登录用户时出错:', error);
         }
     }
     
@@ -2375,11 +2519,46 @@ if (isBrowser) {
             });
     }
     
+    // 全局变量，用于跟踪是否已经显示了欢迎消息
+    let welcomeMessageShown = false;
+    
+    // 全局变量，用于跟踪当前加载的会话ID和加载状态
+    let currentlyLoadingSessionId = null;
+    let isLoadingChatHistory = false;
+    
     // 加载聊天历史
     function loadChatHistory(sessionId) {
+        // 如果已经在加载相同的会话，则不重复加载
+        if (isLoadingChatHistory && sessionId === currentlyLoadingSessionId) {
+            console.log('已经在加载会话ID:', sessionId, '，跳过重复加载');
+            return;
+        }
+        
+        // 设置加载状态
+        isLoadingChatHistory = true;
+        currentlyLoadingSessionId = sessionId;
+        console.log('开始加载聊天历史，会话ID:', sessionId || '默认会话');
+        
         // 清空聊天区域
         const chatMessages = document.getElementById('chatMessages');
         chatMessages.innerHTML = '';
+        
+        // 重置欢迎消息标志（如果指定了会话ID，表示是切换会话，需要重置）
+        if (sessionId) {
+            welcomeMessageShown = false;
+        }
+        
+        // 如果用户未登录，只显示欢迎消息，不请求API
+        if (!isLoggedIn) {
+            console.log('用户未登录，显示欢迎消息');
+            if (!welcomeMessageShown) {
+                addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天感觉如何？有什么想和我分享的吗？');
+                updateAssistantAvatars();
+                welcomeMessageShown = true;
+            }
+            isLoadingChatHistory = false;
+            return;
+        }
         
         // 构建API URL
         let url = '/api/chat-history';
@@ -2417,6 +2596,8 @@ if (isBrowser) {
                         // 记录最后一次的用户消息和助手回复
                         if (msg.is_user) {
                             lastUserMessage = msg.content;
+                            // 添加到最近消息列表，防止重复检测误判
+                            addToRecentMessages(msg.content);
                         } else {
                             lastAssistantReply = msg.content;
                         }
@@ -2449,18 +2630,31 @@ if (isBrowser) {
                     if (dialogTurns >= MIN_TURNS_BEFORE_RECOMMEND) {
                         shouldRecommendAroma = true;
                     }
+                    
+                    // 已经显示了历史消息，不需要显示欢迎消息
+                    welcomeMessageShown = true;
                 } else {
                     console.log('没有聊天历史或加载失败，显示欢迎消息');
                     // 如果没有历史记录，显示欢迎消息
-                    addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天感觉如何？有什么想和我分享的吗？');
-                    updateAssistantAvatars();
+                    if (!welcomeMessageShown) {
+                        addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天感觉如何？有什么想和我分享的吗？');
+                        updateAssistantAvatars();
+                        welcomeMessageShown = true;
+                    }
                 }
+                // 重置加载状态
+                isLoadingChatHistory = false;
             })
             .catch(error => {
                 console.error('加载聊天历史失败:', error);
                 // 出错时也显示欢迎消息
-                addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天感觉如何？有什么想和我分享的吗？');
-                updateAssistantAvatars();
+                if (!welcomeMessageShown) {
+                    addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天感觉如何？有什么想和我分享的吗？');
+                    updateAssistantAvatars();
+                    welcomeMessageShown = true;
+                }
+                // 重置加载状态
+                isLoadingChatHistory = false;
             });
     }
     
@@ -3327,6 +3521,9 @@ if (isBrowser) {
             });
     }
     
+    // 全局变量，用于存储新对话按钮的事件处理函数
+    let newSessionBtnClickHandler = null;
+    
     // 更新聊天会话列表UI
     function updateChatSessionsUI(sessions) {
         console.log('开始更新聊天会话列表UI...');
@@ -3345,15 +3542,40 @@ if (isBrowser) {
         const newSessionBtn = document.getElementById('newSessionBtn');
         if (newSessionBtn) {
             console.log('找到newSessionBtn元素，绑定点击事件');
-            // 先移除所有现有的点击事件处理程序
-            newSessionBtn.removeEventListener('click', createNewSession);
-            // 然后添加新的点击事件处理程序
-            newSessionBtn.addEventListener('click', function(e) {
-                console.log('新对话按钮被点击（从updateChatSessionsUI中）');
+            
+            // 移除所有现有的点击事件处理程序
+            if (newSessionBtnClickHandler) {
+                console.log('移除现有的点击事件处理程序');
+                newSessionBtn.removeEventListener('click', newSessionBtnClickHandler);
+            }
+            
+            // 创建新的事件处理函数
+            newSessionBtnClickHandler = function(e) {
+                console.log('新对话按钮被点击');
                 e.preventDefault();
                 e.stopPropagation();
+                
+                // 防止重复点击
+                if (this.disabled) {
+                    console.log('按钮已禁用，忽略点击');
+                    return;
+                }
+                
+                // 临时禁用按钮，防止重复点击
+                this.disabled = true;
+                
+                // 创建新会话
                 createNewSession();
-            });
+                
+                // 1秒后重新启用按钮
+                setTimeout(() => {
+                    this.disabled = false;
+                }, 1000);
+            };
+            
+            // 添加新的点击事件处理程序
+            newSessionBtn.addEventListener('click', newSessionBtnClickHandler);
+            console.log('成功绑定新的点击事件处理程序');
         } else {
             console.error('未找到newSessionBtn元素');
         }
@@ -3424,9 +3646,32 @@ if (isBrowser) {
         });
     }
     
+    // 全局变量，用于跟踪是否正在创建新会话
+    let isCreatingNewSession = false;
+    
     // 创建新会话
     function createNewSession() {
         console.log('点击创建新会话按钮');
+        
+        // 防止重复创建
+        if (isCreatingNewSession) {
+            console.log('已经在创建新会话中，忽略重复请求');
+            return;
+        }
+        
+        // 设置创建状态
+        isCreatingNewSession = true;
+        
+        // 检查用户是否已登录
+        if (!isLoggedIn) {
+            console.log('用户未登录，显示登录提示');
+            alert('请先登录后再创建新对话');
+            // 打开登录模态框
+            openModal('authModal');
+            // 重置创建状态
+            isCreatingNewSession = false;
+            return;
+        }
         
         // 获取CSRF令牌
         const csrfToken = getCsrfToken();
@@ -3458,10 +3703,14 @@ if (isBrowser) {
                 console.error('创建新会话失败:', data.message);
                 alert('创建新会话失败: ' + (data.message || '未知错误'));
             }
+            // 重置创建状态
+            isCreatingNewSession = false;
         })
         .catch(error => {
             console.error('创建新会话请求失败:', error);
             alert('创建新会话请求失败: ' + error.message);
+            // 重置创建状态
+            isCreatingNewSession = false;
         });
     }
     
@@ -3480,6 +3729,9 @@ if (isBrowser) {
                 item.classList.remove('active');
             }
         });
+        
+        // 重置欢迎消息标志，确保切换会话时不会显示重复的欢迎消息
+        welcomeMessageShown = false;
         
         // 加载该会话的聊天历史
         loadChatHistory(sessionId);
@@ -3561,5 +3813,35 @@ if (isBrowser) {
         .catch(error => {
             console.error('删除会话请求失败:', error);
         });
+    }
+
+    // 获取情绪图标
+    function getEmotionIcon(emotion) {
+        const emotionIcons = {
+            '快乐': 'fa-grin-beam',
+            '悲伤': 'fa-sad-tear',
+            '愤怒': 'fa-angry',
+            '焦虑': 'fa-frown',
+            '压力': 'fa-tired',
+            '疲惫': 'fa-tired',
+            '失眠': 'fa-moon',
+            '平静': 'fa-smile'
+        };
+        return emotionIcons[emotion] || 'fa-smile';
+    }
+    
+    // 获取情绪描述
+    function getEmotionDescription(emotion) {
+        const emotionDescriptions = {
+            '快乐': '您似乎心情不错！享受这美好的时刻，并记住这种感觉。',
+            '悲伤': '您似乎感到有些悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。',
+            '愤怒': '您似乎感到有些愤怒。这是一种正常的情绪，尝试找到健康的方式来表达它。',
+            '焦虑': '您似乎感到有些焦虑。深呼吸可能会有所帮助，尝试放松您的身心。',
+            '压力': '您似乎感到有些压力。适当的休息和放松对缓解压力很有帮助。',
+            '疲惫': '您似乎感到有些疲惫。适当的休息对身心健康都很重要。',
+            '失眠': '您似乎有些睡眠问题。建立良好的睡眠习惯可能会有所帮助。',
+            '平静': '您当前的情绪状态看起来很平静。'
+        };
+        return emotionDescriptions[emotion] || '您当前的情绪状态看起来很平静。';
     }
 } 
