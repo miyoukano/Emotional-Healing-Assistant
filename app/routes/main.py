@@ -21,6 +21,12 @@ def profile():
     """用户个人资料页面"""
     return render_template('profile.html')
 
+@main_bp.route('/token-stats')
+@login_required
+def token_stats():
+    """用户Token使用统计页面"""
+    return render_template('token_stats.html')
+
 @main_bp.route('/static/<path:filename>')
 def static_files(filename):
     """提供静态文件"""

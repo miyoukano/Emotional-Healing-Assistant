@@ -2,47 +2,54 @@ from app import db
 from datetime import datetime
 
 class ChatSession(db.Model):
+    """聊天会话模型"""
     __tablename__ = 'chat_sessions'
     
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    title = db.Column(db.String(100), default="新对话")  # 对话标题
+    title = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_emotion = db.Column(db.String(20))  # 最后的情绪标签
-    last_persona = db.Column(db.String(20))  # 最后使用的人设
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_emotion = db.Column(db.String(50), nullable=True)
+    last_persona = db.Column(db.String(50), default='empathetic')
+    recommended_product_id = db.Column(db.Integer, nullable=True)  # 跟踪已推荐的香薰产品ID
     
     # 关系
-    messages = db.relationship('ChatMessage', backref='session', lazy='dynamic')
-    
-    def __repr__(self):
-        return f'<ChatSession {self.id}: {self.title}>'
+    messages = db.relationship('ChatMessage', backref='session', lazy='dynamic', cascade='all, delete-orphan')
 
 class ChatMessage(db.Model):
+    """聊天消息模型"""
     __tablename__ = 'chat_messages'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     session_id = db.Column(db.Integer, db.ForeignKey('chat_sessions.id'))
-    content = db.Column(db.Text)
-    is_user = db.Column(db.Boolean, default=True)  # True表示用户消息，False表示助手消息
-    emotion = db.Column(db.String(20))  # 情绪标签
-    emotion_score = db.Column(db.Float)  # 情绪分数
-    persona = db.Column(db.String(20))  # 使用的人设
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    content = db.Column(db.Text, nullable=False)
+    is_user = db.Column(db.Boolean, default=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    def __repr__(self):
-        return f'<ChatMessage {self.id}>'
-
+    emotion = db.Column(db.String(50), nullable=True)
+    emotion_score = db.Column(db.Float, nullable=True)
+    persona = db.Column(db.String(50), default='empathetic')
 
 class EmotionRecord(db.Model):
+    """情绪记录模型"""
     __tablename__ = 'emotion_records'
     
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    emotion = db.Column(db.String(20))  # 情绪标签
-    score = db.Column(db.Float)  # 情绪分数
+    emotion = db.Column(db.String(50), nullable=False)
+    score = db.Column(db.Float, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+class TokenUsage(db.Model):
+    """Token使用量记录模型"""
+    __tablename__ = 'token_usages'
     
-    def __repr__(self):
-        return f'<EmotionRecord {self.id}>' 
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    date = db.Column(db.Date, nullable=False)
+    tokens_used = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # 唯一约束确保每个用户每天只有一条记录
+    __table_args__ = (db.UniqueConstraint('user_id', 'date', name='unique_user_date'),) 

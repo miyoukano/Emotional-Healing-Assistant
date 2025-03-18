@@ -59,7 +59,7 @@ def create_app(config_class=Config):
     csrf.exempt('app.routes.auth')
     
     # 设置登录视图
-    login_manager.login_view = 'auth.login'
+    login_manager.login_view = 'auth.login'  # type: ignore
     login_manager.login_message = '请先登录以访问此页面'
     login_manager.login_message_category = 'info'
     

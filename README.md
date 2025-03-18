@@ -38,11 +38,7 @@
 │   └── config.py       # 配置文件
 ├── data/               # 数据库导出文件
 ├── migrations/         # 数据库迁移文件
-├── export_db.py        # 数据库导出脚本
-├── import_db.py        # 数据库导入脚本
 ├── init_db.py          # 数据库初始化脚本
-├── check_db.py         # 数据库检查脚本
-├── test_mysql.py       # MySQL连接测试脚本
 ├── run.py              # 应用启动脚本
 └── README.md           # 项目说明
 ```
@@ -128,7 +124,7 @@ python check_db.py
 python test_mysql.py
 ```
 
-这将尝试使用不同的方法连接到MySQL服务器。
+这个脚本会执行全面的数据库连接测试，使用多种方法（PyMySQL直接连接、SQLAlchemy连接、Flask-SQLAlchemy连接）尝试连接到数据库，并提供详细的诊断信息。如果遇到连接问题，脚本会提供可能的原因和解决方案建议。
 
 ### 导出数据库
 
@@ -138,7 +134,7 @@ python test_mysql.py
 python export_db.py
 ```
 
-这将在 `data/` 目录下创建一个SQL文件，包含完整的数据库结构和数据。
+这将在 `data/` 目录下创建一个SQL文件，包含完整的数据库结构和数据。导出脚本会自动更新data目录下的README.md文件，提供详细的导入说明。
 
 ### 导入数据库
 
@@ -148,7 +144,19 @@ python export_db.py
 python import_db.py
 ```
 
-这将使用 `data/` 目录下的SQL文件来创建和填充数据库。如果数据库已经存在且包含表，脚本将跳过导入步骤。
+这将使用 `data/` 目录下的SQL文件来创建和填充数据库。
+
+或者你也可以直接使用MySQL命令导入：
+
+```bash
+# 创建数据库(如果尚未创建)
+mysql -u 用户名 -p -e "CREATE DATABASE IF NOT EXISTS emotional_assistant CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+# 导入数据
+mysql -u 用户名 -p < data/emotional_assistant.sql
+```
+
+导入过程中如果遇到问题，请参考`data/README.md`文件中的详细说明。
 
 ### 初始化数据库
 

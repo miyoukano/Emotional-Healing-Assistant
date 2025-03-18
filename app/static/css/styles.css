@@ -125,16 +125,19 @@ body {
     background-color: var(--card-color);
     border-radius: var(--border-radius);
     box-shadow: var(--shadow);
-    z-index: 100;
+    z-index: 1000;
     overflow: hidden;
-    display: none;
+    opacity: 0;
+    visibility: hidden;
     flex-direction: column;
     margin-top: 5px;
     border: 1px solid rgba(0, 0, 0, 0.1);
-    backdrop-filter: none;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 
 .persona-dropdown.active {
+    opacity: 1;
+    visibility: visible;
     display: flex;
 }
 
@@ -225,6 +228,8 @@ body {
     flex-direction: column;
     align-items: center;
     margin-bottom: 20px;
+    transition: var(--transition);
+    position: relative;
 }
 
 .emotion-icon {
@@ -720,6 +725,67 @@ body {
     transform: scale(1.1);
 }
 
+/* 用户头像样式 - 防止图片拉伸 */
+.user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    display: inline-block;
+}
+
+.user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+
+/* 用户菜单中的头像 */
+.user-profile .user-avatar {
+    width: 36px;
+    height: 36px;
+    margin-right: 10px;
+}
+
+/* 导航栏用户头像 */
+.navbar .user-avatar {
+    width: 36px;
+    height: 36px;
+    margin-right: 0;
+}
+
+/* Token统计页面导航栏样式 */
+.navbar .user-profile {
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+
+.navbar .user-avatar {
+    width: 36px;
+    height: 36px;
+    margin-right: 0;
+}
+
+/* 个人资料模态框的头像 */
+.profile-avatar {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    margin: 0 auto 20px;
+    border-radius: 50%;
+    overflow: hidden;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.profile-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: opacity 0.3s;
+}
+
 /* 用户资料区域 */
 .user-profile {
     display: flex;
@@ -729,20 +795,6 @@ body {
     background-color: rgba(126, 87, 194, 0.1);
     border-radius: var(--border-radius);
     position: relative;
-}
-
-.user-avatar {
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    overflow: hidden;
-    margin-right: 12px;
-}
-
-.user-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
 }
 
 .user-info {

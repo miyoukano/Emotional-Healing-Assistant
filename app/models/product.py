@@ -14,7 +14,7 @@ class AromaProduct(db.Model):
     description = db.Column(db.Text)
     full_description = db.Column(db.Text)
     image_url = db.Column(db.String(200))
-    price = db.Column(db.Float)
+    price = db.Column(db.Integer)
     stock = db.Column(db.Integer, default=100)
     rating = db.Column(db.Float, default=5.0)
     created_at = db.Column(db.DateTime, server_default=db.func.now())

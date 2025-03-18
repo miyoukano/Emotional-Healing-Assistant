@@ -1,9 +1,11 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app import db, csrf
-from app.models import User, ChatMessage, EmotionRecord, AromaProduct, product_emotions, ChatSession
+from app.models import User, ChatMessage, EmotionRecord, AromaProduct, product_emotions, ChatSession, TokenUsage
 from app.utils.spark_api import get_spark_client
 from app.utils.aromatherapy_recommender import recommend_products_for_emotion, get_product_details
+from app.utils.token_counter import estimate_chat_tokens, estimate_completion_tokens
+from app.utils.token_usage import update_token_usage
 import json
 from datetime import datetime, timedelta
 import os
@@ -11,6 +13,7 @@ from werkzeug.utils import secure_filename
 import sys
 import logging
 from sqlalchemy.sql.expression import func
+import random
 
 api_bp = Blueprint('api', __name__)
 
@@ -80,7 +83,7 @@ def chat():
         
         # 生成回复
         if 'generate_reply_with_spark' in globals():
-            reply_result = generate_reply_with_spark(message, emotion_type, persona, dialog_turns, user_preferences)
+            reply_result = generate_reply_with_spark(message, emotion_type, persona, dialog_turns, user_preferences, session.id)
             reply = reply_result
             
             # 保存助手回复
@@ -95,8 +98,9 @@ def chat():
             )
             db.session.add(assistant_message)
         else:
-            reply_result = generate_reply(message, emotion_type, persona, dialog_turns, user_preferences)
-            reply = reply_result.get('reply', '') if isinstance(reply_result, dict) else reply_result
+            # 注意这里添加session.id参数
+            reply_result = generate_reply(message, emotion_type, persona, dialog_turns, user_preferences, session.id)
+            reply = reply_result
             
             # 保存助手回复
             assistant_message = ChatMessage(
@@ -111,32 +115,27 @@ def chat():
             db.session.add(assistant_message)
         
         # 更新会话信息
+        session.last_activity = datetime.utcnow()
+        session.last_message = message[:50] + "..." if len(message) > 50 else message
         session.last_emotion = emotion_type
         session.last_persona = persona
-        session.updated_at = datetime.utcnow()
-        
-        # 如果是第一条消息，更新会话标题
-        if dialog_turns == 0:
-            # 使用消息的前20个字符作为标题
-            session.title = message[:20] + "..." if len(message) > 20 else message
-        
         db.session.commit()
         
-        # 返回结果
-        return jsonify({
+        # 返回回复和情绪分析结果
+        response = {
             'success': True,
             'reply': reply,
-            'emotion': {
-                'type': emotion_type,
-                'score': emotion_score,
-                'icon': get_emotion_icon(emotion_type),
-                'description': get_emotion_description(emotion_type)
-            },
+            'emotion': emotion_type,
+            'emotion_score': emotion_score,
+            'message_id': assistant_message.id,
             'session_id': session.id
-        })
+        }
+        
+        return jsonify(response)
+    
     except Exception as e:
-        current_app.logger.error("处理聊天消息失败: %s", str(e), exc_info=True)
-        return jsonify({'success': False, 'message': '服务器内部错误'}), 500
+        current_app.logger.error(f"处理聊天请求时发生错误: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'message': f'服务器错误: {str(e)}'}), 500
 
 @api_bp.route('/chat-history', methods=['GET'])
 @login_required
@@ -196,6 +195,12 @@ def save_persona():
     """保存用户选择的人设"""
     try:
         data = request.json
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': '请求数据为空'
+            }), 400
+            
         persona = data.get('persona')
         
         if not persona:
@@ -515,7 +520,11 @@ def update_avatar():
     
     # 检查文件类型
     allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
-    if '.' not in file.filename or file.filename.rsplit('.', 1)[1].lower() not in allowed_extensions:
+    if not file.filename or '.' not in file.filename:
+        return jsonify({'success': False, 'message': '只支持PNG、JPG、JPEG和GIF格式'}), 400
+    
+    extension = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
+    if extension not in allowed_extensions:
         return jsonify({'success': False, 'message': '只支持PNG、JPG、JPEG和GIF格式'}), 400
     
     try:
@@ -551,33 +560,57 @@ def analyze_emotion(message):
     # 扩展的情绪关键词匹配
     message = message.lower()
     
-    # 情绪类别和关键词映射
+    # 情绪类别和关键词映射（扩展更多常见表达）
     emotion_keywords = {
-        '悲伤': ['难过', '伤心', '悲', '哭', '失落', '绝望', '痛苦', '遗憾', '哀伤', '忧郁'],
-        '焦虑': ['焦虑', '担心', '紧张', '害怕', '恐惧', '不安', '慌张', '忧虑', '惊慌', '压力'],
-        '愤怒': ['生气', '愤怒', '烦', '恼火', '暴躁', '恨', '不满', '怒火', '气愤', '厌烦'],
-        '快乐': ['开心', '高兴', '快乐', '喜悦', '兴奋', '愉快', '欣喜', '满足', '幸福', '欢乐'],
-        '疲惫': ['疲惫', '累', '困', '倦怠', '精疲力竭', '没精神', '疲乏', '疲劳', '困倦', '乏力'],
-        '平静': ['平静', '安宁', '放松', '舒适', '安心', '宁静', '祥和', '镇定', '安详', '平和']
+        '悲伤': ['难过', '伤心', '悲', '哭', '失落', '绝望', '痛苦', '遗憾', '哀伤', '忧郁', '悲伤', '失望', '沮丧', '难受', 
+               '叹息', '郁闷', '消沉', '低落', '难熬', '心酸', '惆怅', '凄凉', '黯然', '心碎', '委屈', '孤独', '心痛', '心凉'],
+        '焦虑': ['焦虑', '担心', '紧张', '害怕', '恐惧', '不安', '慌张', '忧虑', '惊慌', '压力', '忐忑', '忧心', '提心吊胆', 
+               '心神不宁', '急', '愁', '揪心', '惶恐', '发慌', '不知所措', '坐立不安', '心慌', '惴惴不安', '烦躁', '焦躁', '怕'],
+        '愤怒': ['生气', '愤怒', '烦', '恼火', '暴躁', '恨', '不满', '怒火', '气愤', '厌烦', '发怒', '火大', '恼怒', '抓狂', 
+               '气死', '气愤', '恶心', '憎恨', '讨厌', '烦人', '烦躁', '忍无可忍', '不爽', '心烦', '烦闷', '可恶', '恨死了'],
+        '快乐': ['开心', '高兴', '快乐', '喜悦', '兴奋', '愉快', '欣喜', '满足', '幸福', '欢乐', '开怀', '笑', '好心情', '愉悦',
+               '畅快', '舒畅', '雀跃', '甜蜜', '享受', '开怀大笑', '嘻嘻', '哈哈', '欢喜', '轻松', '美好', '温馨', '感动', '感谢'],
+        '疲惫': ['疲惫', '累', '困', '倦怠', '精疲力竭', '没精神', '疲乏', '疲劳', '困倦', '乏力', '疲', '劳累', '困乏', 
+               '睡不着', '失眠', '憔悴', '萎靡', '无力', '虚弱', '耗尽', '超负荷', '透支', '吃不消', '不堪重负', '筋疲力尽'],
+        '平静': ['平静', '安宁', '放松', '舒适', '安心', '宁静', '祥和', '镇定', '安详', '平和', '从容', '恬静', '泰然', 
+               '淡定', '沉着', '稳重', '冷静', '理性', '安稳', '自在']
     }
     
-    # 情绪强度基准分数
+    # 高频词/强情绪词汇（给予更高的权重）
+    strong_emotion_words = {
+        '悲伤': ['绝望', '痛苦', '心碎', '崩溃', '心痛', '极度难过', '极度悲伤', '悲痛欲绝'],
+        '焦虑': ['恐惧', '极度不安', '惊恐', '崩溃', '提心吊胆', '极度担忧', '极度紧张'],
+        '愤怒': ['愤怒', '恨', '憎恨', '恼怒', '气愤', '恨死了', '忍无可忍', '怒不可遏'],
+        '快乐': ['狂喜', '特别开心', '极度兴奋', '无比幸福', '欣喜若狂', '兴高采烈'],
+        '疲惫': ['精疲力竭', '筋疲力尽', '极度疲惫', '身心俱疲', '不堪重负']
+    }
+    
+    # 情绪强度基准分数（降低平静的基准分数）
     base_scores = {
         '悲伤': 30,
-        '焦虑': 40,
+        '焦虑': 35,
         '愤怒': 35,
-        '快乐': 85,
-        '疲惫': 45,
-        '平静': 60
+        '快乐': 45,
+        '疲惫': 40,
+        '平静': 25  # 降低平静的基准分数
     }
     
     # 计算每种情绪的匹配度
     emotion_matches = {}
+    
+    # 首先检查常规关键词匹配
     for emotion, keywords in emotion_keywords.items():
         match_count = sum(1 for keyword in keywords if keyword in message)
-        if match_count > 0:
-            # 计算情绪强度分数 (基础分数 + 匹配关键词数量的影响)
-            emotion_matches[emotion] = base_scores[emotion] + (match_count * 5)
+        
+        # 检查是否包含强情绪词汇
+        strong_match_count = 0
+        if emotion in strong_emotion_words:
+            strong_match_count = sum(1 for keyword in strong_emotion_words[emotion] if keyword in message)
+        
+        # 计算加权匹配分数
+        if match_count > 0 or strong_match_count > 0:
+            # 普通关键词每个加5分，强情绪关键词每个加15分
+            emotion_matches[emotion] = base_scores[emotion] + (match_count * 5) + (strong_match_count * 15)
     
     # 如果没有匹配到任何情绪关键词，返回平静
     if not emotion_matches:
@@ -587,80 +620,127 @@ def analyze_emotion(message):
     dominant_emotion = max(emotion_matches.items(), key=lambda x: x[1])
     return dominant_emotion[0], dominant_emotion[1]
 
-def generate_reply(message, emotion, persona, dialog_turns=0, user_preferences=None):
+def generate_reply(message, emotion, persona, dialog_turns=0, user_preferences=None, session_id=None):
     """生成回复（简单实现，实际应用中应使用NLP或LLM）"""
+    # 计算输入token数量，假设简单对话的token数量
+    input_tokens = len(message) // 4
+    
     # 根据对话轮数和人设生成不同的回复
+    reply = ""
     if dialog_turns < 3:
         # 初始对话阶段，建立初步情感联系
         if persona == 'empathetic':
             if emotion == '悲伤':
-                return '我能感受到你的悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。能详细和我分享一下你最近经历了什么吗？'
+                reply = '我能感受到你的悲伤。请记住，这些感受是暂时的，允许自己感受它们是很重要的。能详细和我分享一下你最近经历了什么吗？'
             elif emotion == '焦虑':
-                return '焦虑确实是一种很不舒服的感觉。深呼吸可能会有所帮助。能告诉我你焦虑的具体原因吗？这样我可以更好地理解你的处境。'
+                reply = '焦虑确实是一种很不舒服的感觉。深呼吸可能会有所帮助。能告诉我你焦虑的具体原因吗？这样我可以更好地理解你的处境。'
             elif emotion == '愤怒':
-                return '我理解你感到愤怒。这是一种正常的情绪反应。是什么事情触发了这种情绪？如果你愿意分享，我很乐意倾听。'
+                reply = '我理解你感到愤怒。这是一种正常的情绪反应。是什么事情触发了这种情绪？如果你愿意分享，我很乐意倾听。'
             elif emotion == '快乐':
-                return '很高兴看到你这么开心！能分享是什么让你如此愉快吗？分享快乐的事情通常能让这种积极情绪持续更长时间。'
+                reply = '很高兴看到你这么开心！能分享是什么让你如此愉快吗？分享快乐的事情通常能让这种积极情绪持续更长时间。'
             elif emotion == '疲惫':
-                return '听起来你感到很疲惫。休息和自我照顾是很重要的。最近是什么让你感到特别疲惫呢？'
+                reply = '听起来你感到很疲惫。休息和自我照顾是很重要的。最近是什么让你感到特别疲惫呢？'
             else:
-                return '谢谢你的分享。我很理解你的感受，这是很自然的反应。能详细告诉我你最近的生活和情绪变化吗？我希望能更好地了解你的状况。'
+                reply = '谢谢你的分享。我很理解你的感受，这是很自然的反应。能详细告诉我你最近的生活和情绪变化吗？我希望能更好地了解你的状况。'
         elif persona == 'motivational':
-            return '你做得很棒！每一步都是进步，即使是小小的分享也是勇气的表现。我很好奇，你平时如何面对挑战？有什么特别的方法帮助你保持积极？'
+            reply = '你做得很棒！每一步都是进步，即使是小小的分享也是勇气的表现。我很好奇，你平时如何面对挑战？有什么特别的方法帮助你保持积极？'
         elif persona == 'analytical':
-            return '从你的描述来看，这种情况可能与几个因素有关。我们可以从不同角度分析：首先，环境因素可能在影响你的情绪；其次，认知模式也可能起作用。能详细描述一下你的具体情况吗？'
+            reply = '从你的描述来看，这种情况可能与几个因素有关。我们可以从不同角度分析：首先，环境因素可能在影响你的情绪；其次，认知模式也可能起作用。能详细描述一下你的具体情况吗？'
         elif persona == 'mindful':
-            return '让我们一起深呼吸，专注于当下这一刻。注意你的感受，但不要评判它们。这些情绪就像天空中的云，它们会来也会去。你能描述一下你当前的感受吗？'
+            reply = '让我们一起深呼吸，专注于当下这一刻。注意你的感受，但不要评判它们。这些情绪就像天空中的云，它们会来也会去。你能描述一下你当前的感受吗？'
         else:
-            return '我理解你的感受。请继续分享你的想法，我在这里倾听和支持你。你愿意多告诉我一些关于你现在的情况吗？'
+            reply = '我理解你的感受。请继续分享你的想法，我在这里倾听和支持你。你愿意多告诉我一些关于你现在的情况吗？'
     elif dialog_turns >= 3 and dialog_turns < 7:
         # 深入交流阶段，专注于情感支持和问题探讨
         if persona == 'empathetic':
             if emotion == '悲伤':
-                return '看到你陷入悲伤，我也感到难过。每个人都有经历低谷的时候，这完全没关系。你觉得是什么原因导致你一直无法摆脱这种情绪呢？或许我们可以一起探讨一些应对的方法。'
+                reply = '看到你陷入悲伤，我也感到难过。每个人都有经历低谷的时候，这完全没关系。你觉得是什么原因导致你一直无法摆脱这种情绪呢？或许我们可以一起探讨一些应对的方法。'
             elif emotion == '焦虑':
-                return '焦虑是一种非常常见的反应，尤其是在面对不确定性时。从你分享的情况来看，这段时间你承受了很多压力。你有尝试过哪些方法来减轻焦虑吗？有时候简单的放松练习就能带来很大的不同。'
+                reply = '焦虑是一种非常常见的反应，尤其是在面对不确定性时。从你分享的情况来看，这段时间你承受了很多压力。你有尝试过哪些方法来减轻焦虑吗？有时候简单的放松练习就能带来很大的不同。'
             elif emotion == '愤怒':
-                return '愤怒往往源于我们内心深处的其他感受，如委屈、不被尊重或无力感。仔细想想，是否有某些核心问题一直困扰着你？识别这些根源有时能帮助我们更好地处理愤怒情绪。'
+                reply = '愤怒往往源于我们内心深处的其他感受，如委屈、不被尊重或无力感。仔细想想，是否有某些核心问题一直困扰着你？识别这些根源有时能帮助我们更好地处理愤怒情绪。'
             elif emotion == '快乐':
-                return '你的快乐情绪真的很有感染力！能保持这种积极的心态非常难得。你是如何在面对生活中的挑战时仍然保持乐观的呢？这种能力值得被珍视。'
+                reply = '你的快乐情绪真的很有感染力！能保持这种积极的心态非常难得。你是如何在面对生活中的挑战时仍然保持乐观的呢？这种能力值得被珍视。'
             elif emotion == '疲惫':
-                return '长期的疲惫感可能是身体或心理压力的信号。听上去你最近确实承担了很多。你有为自己留出足够的休息和恢复的时间吗？有时候适当的"自我关怀时刻"是非常必要的。'
+                reply = '长期的疲惫感可能是身体或心理压力的信号。听上去你最近确实承担了很多。你有为自己留出足够的休息和恢复的时间吗？有时候适当的"自我关怀时刻"是非常必要的。'
             else:
-                return '感谢你继续和我分享你的感受。通过我们的对话，我能感受到你是一个非常有韧性的人。面对这些情况，你内心最希望得到什么样的支持或改变呢？'
+                reply = '感谢你继续和我分享你的感受。通过我们的对话，我能感受到你是一个非常有韧性的人。面对这些情况，你内心最希望得到什么样的支持或改变呢？'
         elif persona == 'motivational':
-            return '通过我们这段时间的交流，我真的被你的毅力和进步所感动！记住，每一小步的前进都是值得庆祝的成就。你已经取得了很大的进步，接下来有什么新的目标想要实现吗？'
+            reply = '通过我们这段时间的交流，我真的被你的毅力和进步所感动！记住，每一小步的前进都是值得庆祝的成就。你已经取得了很大的进步，接下来有什么新的目标想要实现吗？'
         elif persona == 'analytical':
-            return '基于我们之前的多次分析和讨论，我认为我们已经对情况有了较为清晰的理解。在考虑各种因素的基础上，我们可以制定一个更系统的方法来应对当前的挑战。你觉得我们应该从哪个方面入手？'
+            reply = '基于我们之前的多次分析和讨论，我认为我们已经对情况有了较为清晰的理解。在考虑各种因素的基础上，我们可以制定一个更系统的方法来应对当前的挑战。你觉得我们应该从哪个方面入手？'
         elif persona == 'mindful':
-            return '在我们的多次正念练习和交流中，我注意到你对当下体验的觉知已经有了显著的提升。真正的平静来自于你内在的觉知和接纳。继续保持这种美好的觉察，让每一刻都充满意义。你最近有什么新的体会吗？'
+            reply = '在我们的多次正念练习和交流中，我注意到你对当下体验的觉知已经有了显著的提升。真正的平静来自于你内在的觉知和接纳。继续保持这种美好的觉察，让每一刻都充满意义。你最近有什么新的体会吗？'
         else:
-            return '通过我们这段时间的深入交流，我对你的情况和需求有了更全面的理解。你有什么新的想法或感受想要分享吗？我很期待听到你的更多故事。'
+            reply = '通过我们这段时间的深入交流，我对你的情况和需求有了更全面的理解。你有什么新的想法或感受想要分享吗？我很期待听到你的更多故事。'
     else:
         # 多轮对话后的回复
         if persona == 'empathetic':
             if emotion == '悲伤':
-                return '我们聊了这么多，我真的能体会到你的情绪。在这种悲伤的状态下，有时候适当的外部帮助也很重要。最重要的是你能找到适合自己的方式，慢慢走出这段情绪。你有什么想法或计划来帮助自己度过这段时期吗？'
+                reply = '我们聊了这么多，我真的能体会到你的情绪。在这种悲伤的状态下，有时候适当的外部帮助也很重要。最重要的是你能找到适合自己的方式，慢慢走出这段情绪。你有什么想法或计划来帮助自己度过这段时期吗？'
             elif emotion == '焦虑':
-                return '通过我们的交流，我对你的焦虑有了更深的理解。面对这样的情绪，除了我们讨论的心理调适方法外，给自己足够的耐心和关爱也很重要。你觉得哪些方法对你最有效？'
+                reply = '通过我们的交流，我对你的焦虑有了更深的理解。面对这样的情绪，除了我们讨论的心理调适方法外，给自己足够的耐心和关爱也很重要。你觉得哪些方法对你最有效？'
             elif emotion == '愤怒':
-                return '经过我们这段时间的交流，我更能理解你愤怒背后的原因了。处理这种强烈情绪时，找到适合你的方式才是最重要的，无论是通过对话、反思还是其他途径。你有没有发现什么特别有效的方法？'
+                reply = '经过我们这段时间的交流，我更能理解你愤怒背后的原因了。处理这种强烈情绪时，找到适合你的方式才是最重要的，无论是通过对话、反思还是其他途径。你有没有发现什么特别有效的方法？'
             elif emotion == '快乐':
-                return '很高兴看到你一直保持着积极的心态！这种快乐情绪确实很珍贵。希望你的好心情能持续下去！你有什么计划来延续这种积极状态吗？'
+                reply = '很高兴看到你一直保持着积极的心态！这种快乐情绪确实很珍贵。希望你的好心情能持续下去！你有什么计划来延续这种积极状态吗？'
             elif emotion == '疲惫':
-                return '通过我们的交流，我能感受到你确实需要好好休息和恢复。无论你选择什么方式，记得给自己足够的时间和空间来恢复能量。有什么我能帮助你的吗？'
+                reply = '通过我们的交流，我能感受到你确实需要好好休息和恢复。无论你选择什么方式，记得给自己足够的时间和空间来恢复能量。有什么我能帮助你的吗？'
             else:
-                return '感谢你一直以来的分享和信任。经过这段时间的交流，我想我们都对你的情况有了更深入的了解。你对我们接下来的对话有什么期望或想法吗？'
+                reply = '感谢你一直以来的分享和信任。经过这段时间的交流，我想我们都对你的情况有了更深入的了解。你对我们接下来的对话有什么期望或想法吗？'
         elif persona == 'motivational':
-            return '通过我们这段时间的交流，我真的被你的毅力和进步所感动！记住，每一小步的前进都是值得庆祝的成就。你已经取得了很大的进步，接下来有什么新的目标想要实现吗？'
+            reply = '通过我们这段时间的交流，我真的被你的毅力和进步所感动！记住，每一小步的前进都是值得庆祝的成就。你已经取得了很大的进步，接下来有什么新的目标想要实现吗？'
         elif persona == 'analytical':
-            return '基于我们之前的多次分析和讨论，我认为我们已经对情况有了较为清晰的理解。在考虑各种因素的基础上，我们可以制定一个更系统的方法来应对当前的挑战。你觉得我们应该从哪个方面入手？'
+            reply = '基于我们之前的多次分析和讨论，我认为我们已经对情况有了较为清晰的理解。在考虑各种因素的基础上，我们可以制定一个更系统的方法来应对当前的挑战。你觉得我们应该从哪个方面入手？'
         elif persona == 'mindful':
-            return '在我们的多次正念练习和交流中，我注意到你对当下体验的觉知已经有了显著的提升。真正的平静来自于你内在的觉知和接纳。继续保持这种美好的觉察，让每一刻都充满意义。你最近有什么新的体会吗？'
+            reply = '在我们的多次正念练习和交流中，我注意到你对当下体验的觉知已经有了显著的提升。真正的平静来自于你内在的觉知和接纳。继续保持这种美好的觉察，让每一刻都充满意义。你最近有什么新的体会吗？'
         else:
-            return '通过我们这段时间的深入交流，我对你的情况和需求有了更全面的理解。你有什么新的想法或感受想要分享吗？我很期待听到你的更多故事。'
+            reply = '通过我们这段时间的深入交流，我对你的情况和需求有了更全面的理解。你有什么新的想法或感受想要分享吗？我很期待听到你的更多故事。'
+    
+    # 计算输出token数量
+    output_tokens = len(reply) // 4
+    
+    # 记录token使用量
+    total_tokens = input_tokens + output_tokens
+    if current_user and current_user.is_authenticated:
+        # 本地生成使用较少的token，与API调用相比
+        local_token_factor = 0.2  # 本地生成的token成本比API低
+        token_count = int(total_tokens * local_token_factor)
+        update_token_usage(current_user.id, token_count)
+        current_app.logger.info(f"用户 {current_user.id} 使用本地生成消耗了 {token_count} tokens")
+    
+    # 根据情绪推荐香薰产品
+    if random.random() < min(0.4 + (dialog_turns * 0.1), 0.9):  # 随着对话轮次增加推荐概率，每轮增加10%，基础为40%，最高90%
+        try:
+            # 获取香薰推荐
+            products = recommend_products_for_emotion(emotion, limit=1)
+            if products and len(products) > 0:
+                product = products[0]
+                product_name = product.get('name', '')
+                product_desc = product.get('description', '')
+                
+                # 根据情绪构建推荐语
+                if emotion == '悲伤':
+                    recommend_text = f"\n\n另外，我注意到你现在可能有些悲伤。我想推荐一款香薰产品给你：{product_name}。{product_desc[:100]}...这款产品有助于舒缓悲伤的情绪，带来一些慰藉。"
+                elif emotion == '焦虑':
+                    recommend_text = f"\n\n我感觉到你有些焦虑。也许试试这款香薰产品会有所帮助：{product_name}。{product_desc[:100]}...它有助于缓解焦虑情绪，带来平静。"
+                elif emotion == '愤怒':
+                    recommend_text = f"\n\n我理解你的愤怒。这款香薰产品可能对你有帮助：{product_name}。{product_desc[:100]}...它有助于平复愤怒情绪，恢复内心平静。"
+                elif emotion == '快乐':
+                    recommend_text = f"\n\n很高兴看到你心情不错！这款香薰产品可以帮你保持愉悦的心情：{product_name}。{product_desc[:100]}...它有助于延续和增强你的好心情。"
+                elif emotion == '疲惫':
+                    recommend_text = f"\n\n你似乎有些疲惫。我推荐这款香薰产品：{product_name}。{product_desc[:100]}...它有助于缓解疲劳，恢复精力。"
+                else:
+                    recommend_text = f"\n\n对了，我想向你推荐一款香薰产品：{product_name}。{product_desc[:100]}...这款产品可以帮助你调整情绪，带来舒适的体验。"
+                
+                # 添加推荐到回复中
+                reply += recommend_text
+        except Exception as e:
+            current_app.logger.error(f"添加香薰推荐时出错: {str(e)}")
+    
+    return reply
 
-def generate_reply_with_spark(message, emotion, persona, dialog_turns=0, user_preferences=None):
+def generate_reply_with_spark(message, emotion, persona, dialog_turns=0, user_preferences=None, session_id=None):
     """使用讯飞星火API生成回复"""
     try:
         # 获取SparkAPI客户端
@@ -719,13 +799,19 @@ def generate_reply_with_spark(message, emotion, persona, dialog_turns=0, user_pr
         turn_prompt = f"当前对话轮数: {dialog_turns}"
         messages.append({"role": "system", "content": turn_prompt})
         
-        # 添加最近的对话历史（最多5轮）
+        # 添加最近的对话历史（最多10轮）
         try:
             if current_user and current_user.is_authenticated:
-                # 获取最近的10条消息（5轮对话）
-                recent_messages = ChatMessage.query.filter_by(
-                    user_id=current_user.id
-                ).order_by(ChatMessage.timestamp.desc()).limit(10).all()
+                # 只获取当前会话的消息历史
+                if session_id:
+                    # 获取当前会话的最近10条消息
+                    recent_messages = ChatMessage.query.filter_by(
+                        user_id=current_user.id,
+                        session_id=session_id
+                    ).order_by(ChatMessage.timestamp.desc()).limit(10).all()
+                else:
+                    # 如果没有会话ID，则不获取历史消息
+                    recent_messages = []
                 
                 # 按时间顺序排序（从旧到新）
                 recent_messages.reverse()
@@ -763,6 +849,10 @@ def generate_reply_with_spark(message, emotion, persona, dialog_turns=0, user_pr
         
         # 打印请求消息，用于调试
         current_app.logger.info("发送到讯飞星火API的消息: %s", json.dumps(messages, ensure_ascii=False))
+        
+        # 计算输入token数量
+        input_tokens = estimate_chat_tokens(messages)
+        current_app.logger.info(f"估计的输入token数量: {input_tokens}")
         
         # 设置超时时间（秒）
         timeout = 10
@@ -813,6 +903,45 @@ def generate_reply_with_spark(message, emotion, persona, dialog_turns=0, user_pr
         if not reply or "抱歉，我暂时无法回答您的问题" in reply:
             current_app.logger.warning("讯飞星火API返回空响应或错误消息，使用本地回复生成")
             return generate_reply(message, emotion, persona, dialog_turns, user_preferences)
+        
+        # 计算输出token数量
+        output_tokens = estimate_completion_tokens(reply)
+        current_app.logger.info(f"估计的输出token数量: {output_tokens}")
+        
+        # 记录token使用量
+        total_tokens = input_tokens + output_tokens
+        if current_user and current_user.is_authenticated:
+            update_token_usage(current_user.id, total_tokens)
+            current_app.logger.info(f"用户 {current_user.id} 使用了 {total_tokens} tokens")
+        
+        # 根据情绪推荐香薰产品
+        if random.random() < min(0.4 + (dialog_turns * 0.1), 0.9):  # 随着对话轮次增加推荐概率，每轮增加10%，基础为40%，最高90%
+            try:
+                # 获取香薰推荐
+                products = recommend_products_for_emotion(emotion, limit=1)
+                if products and len(products) > 0:
+                    product = products[0]
+                    product_name = product.get('name', '')
+                    product_desc = product.get('description', '')
+                    
+                    # 根据情绪构建推荐语
+                    if emotion == '悲伤':
+                        recommend_text = f"\n\n另外，我注意到你现在可能有些悲伤。我想推荐一款香薰产品给你：{product_name}。{product_desc[:100]}...这款产品有助于舒缓悲伤的情绪，带来一些慰藉。"
+                    elif emotion == '焦虑':
+                        recommend_text = f"\n\n我感觉到你有些焦虑。也许试试这款香薰产品会有所帮助：{product_name}。{product_desc[:100]}...它有助于缓解焦虑情绪，带来平静。"
+                    elif emotion == '愤怒':
+                        recommend_text = f"\n\n我理解你的愤怒。这款香薰产品可能对你有帮助：{product_name}。{product_desc[:100]}...它有助于平复愤怒情绪，恢复内心平静。"
+                    elif emotion == '快乐':
+                        recommend_text = f"\n\n很高兴看到你心情不错！这款香薰产品可以帮你保持愉悦的心情：{product_name}。{product_desc[:100]}...它有助于延续和增强你的好心情。"
+                    elif emotion == '疲惫':
+                        recommend_text = f"\n\n你似乎有些疲惫。我推荐这款香薰产品：{product_name}。{product_desc[:100]}...它有助于缓解疲劳，恢复精力。"
+                    else:
+                        recommend_text = f"\n\n对了，我想向你推荐一款香薰产品：{product_name}。{product_desc[:100]}...这款产品可以帮助你调整情绪，带来舒适的体验。"
+                    
+                    # 添加推荐到回复中
+                    reply += recommend_text
+            except Exception as e:
+                current_app.logger.error(f"添加香薰推荐时出错: {str(e)}")
         
         return reply
     except Exception as e:
@@ -933,10 +1062,9 @@ def api_recommend_products():
     """根据情绪推荐香薰产品"""
     if not request.is_json:
         return jsonify({"success": False, "message": "请求必须是JSON格式"}), 400
-    
     data = request.json
-    emotion = data.get('emotion')
-    limit = data.get('limit', 3)
+    emotion = data.get('emotion') if data else None
+    limit = data.get('limit', 3) if data else 3
     
     if not emotion:
         return jsonify({"success": False, "message": "必须提供情绪参数"}), 400
@@ -1161,4 +1289,45 @@ def create_chat_session():
     except Exception as e:
         db.session.rollback()
         current_app.logger.error("创建聊天会话失败: %s", str(e), exc_info=True)
-        return jsonify({'success': False, 'message': '服务器内部错误: ' + str(e)}), 500 
+        return jsonify({'success': False, 'message': '服务器内部错误: ' + str(e)}), 500
+
+@api_bp.route('/token-usage', methods=['GET'])
+@login_required
+def get_token_usage():
+    """获取用户的token使用量统计"""
+    try:
+        # 默认获取最近30天的数据
+        days = request.args.get('days', 30, type=int)
+        if days > 365:  # 限制最大查询天数
+            days = 365
+        
+        # 计算起始日期
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days-1)
+        
+        # 查询指定日期范围内的数据
+        token_usage = TokenUsage.query.filter(
+            TokenUsage.user_id == current_user.id,
+            TokenUsage.date >= start_date,
+            TokenUsage.date <= end_date
+        ).order_by(TokenUsage.date).all()
+        
+        # 生成日期序列（包含所有日期，即使没有数据）
+        date_range = [(start_date + timedelta(days=i)).isoformat() for i in range(days)]
+        
+        # 转换查询结果为字典，以日期为键
+        usage_dict = {usage.date.isoformat(): usage.tokens_used for usage in token_usage}
+        
+        # 构建完整的数据序列，对于没有数据的日期填充0
+        usage_data = [usage_dict.get(date, 0) for date in date_range]
+        
+        return jsonify({
+            'success': True,
+            'dates': date_range,
+            'usage': usage_data,
+            'total_usage': sum(usage_data)
+        })
+    
+    except Exception as e:
+        current_app.logger.error("获取Token使用量统计失败: %s", str(e), exc_info=True)
+        return jsonify({'success': False, 'message': '服务器内部错误'}), 500 

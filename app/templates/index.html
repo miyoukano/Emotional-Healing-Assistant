@@ -261,7 +261,7 @@
       .user-profile:hover {
         background-color: rgba(0, 0, 0, 0.02);
       }
-
+      
       /* 头像上传相关样式 */
       .profile-avatar {
         position: relative;
@@ -387,6 +387,7 @@
           <div class="user-menu">
             <ul>
               <li><i class="fas fa-user-circle"></i> 个人资料</li>
+              <li><i class="fas fa-chart-line"></i> Token使用统计</li>
               <li><i class="fas fa-sign-out-alt"></i> 退出登录</li>
             </ul>
           </div>
@@ -749,44 +750,99 @@
         }
       };
 
-      // 用户菜单交互 - 直接使用内联方式绑定事件
+      // 用户菜单交互
       document.addEventListener("DOMContentLoaded", function () {
-        // 直接为用户菜单切换按钮添加点击事件
-        document
-          .querySelector(".user-menu-toggle")
-          .addEventListener("click", function (e) {
+        // 用户菜单切换按钮点击事件
+        const userMenuToggle = document.querySelector(".user-menu-toggle");
+        if (userMenuToggle) {
+          // 移除旧事件监听器
+          const newToggle = userMenuToggle.cloneNode(true);
+          userMenuToggle.parentNode.replaceChild(newToggle, userMenuToggle);
+          
+          // 添加新事件监听器
+          newToggle.addEventListener("click", function(e) {
             e.stopPropagation();
             e.preventDefault();
             document.querySelector(".user-menu").classList.toggle("active");
-            console.log("用户菜单切换按钮被点击");
           });
-
-        // 为用户菜单项添加点击事件
-        document
-          .querySelectorAll(".user-menu li")
-          .forEach(function (item, index) {
-            item.addEventListener("click", function (e) {
-              e.stopPropagation();
-              document.querySelector(".user-menu").classList.remove("active");
-
-              if (index === 0) {
-                // 个人资料
-                openModal("profileModal");
-              } else if (index === 1) {
-                // 退出登录
-                fetch("/auth/logout")
-                  .then((response) => response.json())
-                  .then((data) => {
-                    if (data.success) {
-                      window.location.reload();
-                    }
-                  });
-              }
-            });
+        }
+        
+        // 定义菜单项操作函数
+        function openProfile() {
+          console.log("打开个人资料");
+          document.getElementById("profileModal").classList.add("active");
+          document.querySelector(".modal-overlay").classList.add("active");
+          document.body.classList.add("modal-open");
+        }
+        
+        function openTokenStats() {
+          console.log("打开Token使用统计");
+          window.location.href = "/token-stats";
+        }
+        
+        function logout() {
+          console.log("执行退出登录");
+          fetch("/logout", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": document.querySelector('meta[name="csrf-token"]').getAttribute("content"),
+            },
+          })
+          .then((response) => {
+            console.log("退出登录响应:", response);
+            if (response.ok) {
+              window.location.href = "/";
+            }
+          })
+          .catch((error) => {
+            console.error("退出登录失败:", error);
           });
-
+        }
+        
+        // 获取所有菜单项
+        const menuItems = document.querySelectorAll(".user-menu li");
+        
+        // 移除所有已有的事件监听器
+        menuItems.forEach(function(item) {
+          const clone = item.cloneNode(true);
+          item.parentNode.replaceChild(clone, item);
+        });
+        
+        // 重新获取菜单项并单独绑定事件
+        const profileItem = document.querySelector(".user-menu li:nth-child(1)");
+        const tokenStatsItem = document.querySelector(".user-menu li:nth-child(2)");
+        const logoutItem = document.querySelector(".user-menu li:nth-child(3)");
+        
+        if (profileItem) {
+          profileItem.addEventListener("click", function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            openProfile();
+            document.querySelector(".user-menu").classList.remove("active");
+          });
+        }
+        
+        if (tokenStatsItem) {
+          tokenStatsItem.addEventListener("click", function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            openTokenStats();
+            document.querySelector(".user-menu").classList.remove("active");
+          });
+        }
+        
+        if (logoutItem) {
+          logoutItem.addEventListener("click", function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            logout();
+            document.querySelector(".user-menu").classList.remove("active");
+          });
+        }
+        
         // 点击页面其他区域关闭用户菜单
-        document.addEventListener("click", function () {
+        document.addEventListener("click", function() {
           document.querySelector(".user-menu").classList.remove("active");
         });
       });
@@ -1289,6 +1345,32 @@
           }
         }
       };
+
+      // 页面加载完成后初始化
+      document.addEventListener('DOMContentLoaded', function () {
+        // 添加样式
+        addStyles();
+
+        // 加载保存的主题
+        loadSavedTheme();
+
+        // 显示加载动画
+        setTimeout(() => {
+          document.getElementById('loaderContainer').classList.add('hidden');
+          init();
+
+          // 初始化模态框
+          initModals();
+          
+          // 检查URL参数，如果需要打开个人资料模态框
+          const urlParams = new URLSearchParams(window.location.search);
+          if (urlParams.get('openProfile') === 'true') {
+            openModal('profileModal');
+            // 清除URL参数
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        }, 1500);
+      });
     </script>
   </body>
 </html>

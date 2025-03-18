@@ -99,47 +99,50 @@ if (isBrowser) {
                 console.log('用户已登录，用户信息:', currentUser.username);
                 
                 // 先加载聊天会话列表，确保它显示
-                console.log('开始加载聊天会话列表...');
-                loadChatSessions();
-                
-                // 确保聊天会话列表元素可见
-                const chatSessionsElement = document.getElementById('chatSessions');
-                if (chatSessionsElement) {
-                    console.log('确保聊天会话列表元素可见');
-                    chatSessionsElement.style.display = 'block';
+                loadChatSessions().then(() => {
+                    // 从URL中获取会话ID
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const sessionIdFromUrl = urlParams.get('session_id');
                     
-                    // 强制显示，防止CSS样式冲突
-                    setTimeout(() => {
-                        chatSessionsElement.style.display = 'block';
-                        console.log('再次确认聊天会话列表元素显示');
-                    }, 300);
-                }
+                    if (sessionIdFromUrl) {
+                        console.log('从URL获取会话ID:', sessionIdFromUrl);
+                        switchToSession(sessionIdFromUrl);
+                    } else {
+                        // 获取存储的会话ID
+                        const storedSessionId = localStorage.getItem('currentSessionId');
+                        console.log('从本地存储获取会话ID:', storedSessionId);
+                        
+                        if (storedSessionId) {
+                            currentSessionId = storedSessionId;
+                            loadChatHistory(storedSessionId);
+                        } else {
+                            // 如果没有存储的会话ID，加载默认聊天历史
+                            loadChatHistory();
+                        }
+                    }
+                    
+                    // 如果存在活动会话，高亮显示它
+                    if (currentSessionId) {
+                        const sessionItems = document.querySelectorAll('.chat-session-item');
+                        sessionItems.forEach(item => {
+                            if (item.dataset.sessionId == currentSessionId) {
+                                item.classList.add('active');
+                            }
+                        });
+                    }
+                });
                 
-                // 等待会话列表加载完成后再加载聊天历史
-                setTimeout(() => {
-                    console.log('加载聊天历史...');
-                    loadChatHistory();
-                }, 500);
-                
-                // 直接绑定用户菜单事件
-                bindUserMenuEvents();
+                // 其他用户登录后需要执行的初始化操作...
             } else {
-                // 未登录用户也加载聊天历史（可能有本地存储的历史）
-                // 如果没有历史记录，loadChatHistory会添加欢迎消息
-                console.log('用户未登录，尝试加载本地聊天历史...');
-                loadChatHistory();
+                // 未登录用户，显示欢迎消息
+                if (!welcomeMessageShown && !hasAddedWelcomeMessage) {
+                    addMessageToChat('assistant', '你好！我是你的情绪愈疗助手。今天感觉如何？有什么想和我分享的吗？');
+                    updateAssistantAvatars();
+                    welcomeMessageShown = true;
+                    hasAddedWelcomeMessage = true;
+                }
             }
-        }).catch(error => {
-            console.error('检查登录状态时出错:', error);
-            // 出错时也显示欢迎消息
-            loadChatHistory();
         });
-
-        // 初始化聊天区域滚动
-        scrollChatToBottom();
-        
-        // 初始化对话轮数和用户偏好
-        initDialogContext();
     }
 
     // 设置事件监听器
@@ -169,20 +172,27 @@ if (isBrowser) {
         const personaDropdown = document.getElementById('personaDropdown');
         
         if (personaDropdownToggle && personaDropdown) {
-            personaDropdownToggle.addEventListener('click', (e) => {
+            // 清除可能存在的旧事件监听器
+            const newToggle = personaDropdownToggle.cloneNode(true);
+            personaDropdownToggle.parentNode.replaceChild(newToggle, personaDropdownToggle);
+            
+            // 重新获取DOM元素引用并添加事件监听器
+            const updatedToggle = document.querySelector('.persona-dropdown-toggle');
+            updatedToggle.addEventListener('click', function(e) {
                 e.stopPropagation();
-                personaDropdownToggle.classList.toggle('active');
+                this.classList.toggle('active');
                 personaDropdown.classList.toggle('active');
+                console.log('Persona dropdown toggled', this.classList.contains('active'));
             });
             
             // 点击其他地方关闭下拉菜单
-            document.addEventListener('click', () => {
-                personaDropdownToggle.classList.remove('active');
+            document.addEventListener('click', function() {
+                updatedToggle.classList.remove('active');
                 personaDropdown.classList.remove('active');
             });
             
             // 阻止下拉菜单内部点击事件冒泡
-            personaDropdown.addEventListener('click', (e) => {
+            personaDropdown.addEventListener('click', function(e) {
                 e.stopPropagation();
             });
         }
@@ -190,17 +200,35 @@ if (isBrowser) {
         // 人设选项点击事件
         const personaOptions = document.querySelectorAll('.persona-option');
         personaOptions.forEach(option => {
-            option.addEventListener('click', () => {
-                const persona = option.dataset.persona;
-                changePersona(persona);
-                
-                // 关闭下拉菜单
-                if (personaDropdownToggle && personaDropdown) {
-                    personaDropdownToggle.classList.remove('active');
-                    personaDropdown.classList.remove('active');
+            // 移除可能存在的旧事件监听器
+            const newOption = option.cloneNode(true);
+            option.parentNode.replaceChild(newOption, option);
+        });
+
+        // 使用事件委托处理点击事件
+        const personaDropdownElement = document.getElementById('personaDropdown');
+        if (personaDropdownElement) {
+            personaDropdownElement.addEventListener('click', function(e) {
+                // 查找最近的persona-option父元素
+                const personaOption = e.target.closest('.persona-option');
+                if (personaOption) {
+                    const persona = personaOption.dataset.persona;
+                    changePersona(persona);
+                    
+                    // 获取更新后的元素引用
+                    const updatedToggle = document.querySelector('.persona-dropdown-toggle');
+                    const personaDropdown = document.getElementById('personaDropdown');
+                    
+                    // 关闭下拉菜单
+                    if (updatedToggle && personaDropdown) {
+                        updatedToggle.classList.remove('active');
+                        personaDropdown.classList.remove('active');
+                    }
+                    
+                    console.log('Persona changed to:', persona);
                 }
             });
-        });
+        }
 
         // 关闭香薰产品模态框
         document.querySelectorAll('.close-modal').forEach(closeBtn => {
@@ -481,8 +509,8 @@ if (isBrowser) {
         
         if (message === '') return;
         
-        // 检查是否是重复消息
-        const isRepeatedMessage = checkRepeatedUserMessage(message);
+        // 注释掉重复消息检测逻辑
+        // const isRepeatedMessage = checkRepeatedUserMessage(message);
         
         // 记录当前用户消息
         lastUserMessage = message;
@@ -499,44 +527,22 @@ if (isBrowser) {
         // 添加用户消息到聊天区域
         addMessageToChat('user', message);
         
-        // 分析情绪
+        // 从用户输入中提取情感关键词
         analyzeEmotion(message);
-        
-        // 显示"正在输入"状态
-        showTypingIndicator();
-        
-        // 检查用户是否已登录
-        if (!isLoggedIn) {
-            console.log('用户未登录，显示登录提示');
-            // 移除"正在输入"状态
-            removeTypingIndicator();
-            // 添加系统消息提示用户登录
-            addMessageToChat('assistant', '请先登录后再继续对话，这样我可以更好地为您提供个性化服务。');
-            // 打开登录模态框
-            setTimeout(() => {
-                openModal('authModal');
-            }, 1000);
-            return;
-        }
-        
-        // 获取CSRF令牌
-        let csrfToken = '';
-        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
-        if (csrfMeta) {
-            csrfToken = csrfMeta.getAttribute('content');
-        }
-        
-        console.log('发送消息:', message, '情绪:', currentEmotion, '人设:', currentPersona);
         
         // 增加对话轮数
         dialogTurns++;
         
-        // 移除对话轮数和心情好转的限制，始终设置shouldRecommendAroma为true
-        // 这样每次发送消息后都会根据当前情绪更新推荐
-        shouldRecommendAroma = true;
+        // 如果对话轮数达到阈值，设置为可以推荐香薰产品
+        if (dialogTurns >= MIN_TURNS_BEFORE_RECOMMEND) {
+            shouldRecommendAroma = true;
+        }
         
-        // 每次发送消息后都加载香薰推荐，无论当前人设是什么
-        setTimeout(() => {
+        // 显示"正在输入"状态
+        showTypingIndicator();
+        
+        // 延迟加载更新推荐
+        setTimeout(function() {
             loadRecommendations();
         }, 500);
         
@@ -547,6 +553,8 @@ if (isBrowser) {
         const extractedPreferences = extractUserPreferencesFromMessage(message);
         updateUserPreferences(extractedPreferences);
         
+        // 注释掉重复消息处理逻辑
+        /* 
         // 如果是重复消息，直接生成替代回复而不调用API
         if (isRepeatedMessage) {
             console.log('检测到用户重复消息，生成替代回复');
@@ -561,13 +569,14 @@ if (isBrowser) {
             }
             return;
         }
+        */
         
         // 发送消息到后端API
         fetch('/api/chat', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrfToken
+                'X-CSRF-TOKEN': getCsrfToken()  // 修改这里
             },
             body: JSON.stringify({
                 message: message,
@@ -2003,7 +2012,7 @@ if (isBrowser) {
                     if (productData.price) {
                         const priceInfo = document.createElement('div');
                         priceInfo.classList.add('price-info');
-                        priceInfo.innerHTML = `<strong>价格:</strong> ¥${productData.price.toFixed(2)}`;
+                        priceInfo.innerHTML = `<strong>价格:</strong> ¥${productData.price}`;
                         productInfo.appendChild(priceInfo);
                     }
                     
@@ -2745,7 +2754,7 @@ if (isBrowser) {
     function handleMenuItemClick(e, index) {
         if (e) {
             e.preventDefault();
-        e.stopPropagation();
+            e.stopPropagation();
         }
         const userMenu = document.querySelector('.user-menu');
         if (userMenu) {
@@ -2754,7 +2763,9 @@ if (isBrowser) {
 
         if (index === 0) { // 个人资料
             openModal('profileModal');
-        } else if (index === 1) { // 退出登录
+        } else if (index === 1) { // Token使用统计
+            window.location.href = "/token-stats";
+        } else if (index === 2) { // 退出登录
             handleLogout();
         }
     }
@@ -3720,6 +3731,9 @@ if (isBrowser) {
         
         currentSessionId = sessionId;
         
+        // 保存当前会话ID到localStorage
+        localStorage.setItem('currentSessionId', sessionId);
+        
         // 更新UI中的活动会话
         const sessionItems = document.querySelectorAll('.chat-session-item');
         sessionItems.forEach(item => {
@@ -3843,5 +3857,36 @@ if (isBrowser) {
             '平静': '您当前的情绪状态看起来很平静。'
         };
         return emotionDescriptions[emotion] || '您当前的情绪状态看起来很平静。';
+    }
+
+    // 添加情绪状态切换函数
+    function toggleEmotionDisplay() {
+        // 情绪类型列表
+        const emotions = ['平静', '快乐', '悲伤', '愤怒', '焦虑', '疲惫'];
+        
+        // 获取当前显示的情绪
+        const currentLabel = document.querySelector('.emotion-label').textContent;
+        
+        // 确定下一个要显示的情绪
+        let nextIndex = emotions.indexOf(currentLabel) + 1;
+        if (nextIndex >= emotions.length) {
+            nextIndex = 0;
+        }
+        
+        const nextEmotion = emotions[nextIndex];
+        
+        // 更新情绪显示
+        updateEmotionDisplay(
+            nextEmotion,
+            nextEmotion,
+            getEmotionIcon(nextEmotion),
+            getEmotionDescription(nextEmotion)
+        );
+        
+        // 更新当前情绪变量
+        currentEmotion = nextEmotion;
+        
+        // 更新情绪相关推荐
+        loadRecommendations();
     }
 } 
